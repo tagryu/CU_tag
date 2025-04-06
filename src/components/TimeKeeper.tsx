@@ -24,7 +24,8 @@ import {
   ListItem,
   ListItemText,
   ListItemSecondaryAction,
-  Tooltip
+  Tooltip,
+  SvgIcon
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -34,11 +35,49 @@ import { attendanceService } from '../services/attendanceService';
 import { AttendanceRecord, DefaultSchedule, DAY_OF_WEEK_NAMES } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import 'dayjs/locale/ko';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import EventNoteIcon from '@mui/icons-material/EventNote';
-// Grid 임포트는 현재 사용되지 않으므로 주석 처리
-// import Grid from '../components/GridFix';
-// 일반 임포트 대신 명명된 임포트 사용
+
+// 커스텀 아이콘 컴포넌트를 직접 정의
+const EditIcon = () => (
+  <SvgIcon>
+    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+  </SvgIcon>
+);
+
+const DeleteIcon = () => (
+  <SvgIcon>
+    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+  </SvgIcon>
+);
+
+const AccessTimeIcon = () => (
+  <SvgIcon fontSize="small">
+    <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
+    <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
+  </SvgIcon>
+);
+
+const ContentCopyIcon = () => (
+  <SvgIcon>
+    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+  </SvgIcon>
+);
+
+const EventNoteIcon = () => (
+  <SvgIcon>
+    <path d="M17 10H7v2h10v-2zm2-7h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zm-5-5H7v2h7v-2z" />
+  </SvgIcon>
+);
+
+// 근무 시간 계산 함수
+const calculateHours = (startDateTime: string, endDateTime: string): string => {
+  if (!startDateTime || !endDateTime) return '0';
+  
+  const start = dayjs(startDateTime);
+  const end = dayjs(endDateTime);
+  const hours = end.diff(start, 'hour', true);
+  
+  return hours > 0 ? hours.toFixed(1) : '0';
+};
 
 const TimeKeeper = () => {
   const [startDateTime, setStartDateTime] = useState<dayjs.Dayjs | null>(dayjs());
@@ -504,34 +543,33 @@ const TimeKeeper = () => {
       <Card 
         elevation={0}
         sx={{
-          mb: 4,
+          mb: 3,
           borderRadius: 2,
-          border: '1px solid rgba(0, 0, 0, 0.1)',
-          overflow: 'visible'
+          overflow: 'visible',
+          backgroundColor: 'white',
         }}
       >
         <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
           {/* 상단 제목 영역 */}
           <Box sx={{ 
-            mb: 3,
+            mb: 2.5,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-start'
           }}>
             <Typography 
               variant="h5" 
-              fontWeight="bold"
+              fontWeight="600"
               color="primary"
-              sx={{ mb: 1 }}
+              sx={{ mb: 0.5 }}
             >
               근무 시간 등록
             </Typography>
             <Typography 
-              variant="subtitle1" 
+              variant="body2" 
               color="text.secondary"
               sx={{ 
-                fontSize: { xs: '0.9rem', sm: '1rem' },
-                opacity: 0.8 
+                fontSize: { xs: '0.875rem', sm: '0.9375rem' },
               }}
             >
               {todayDate}
@@ -543,9 +581,16 @@ const TimeKeeper = () => {
             <Alert 
               severity="error" 
               sx={{ 
-                mb: 3, 
+                mb: 2.5, 
                 borderRadius: 2,
-                fontSize: '0.9rem'
+                fontSize: '0.875rem',
+                '& .MuiAlert-icon': {
+                  color: 'error.main',
+                  opacity: 0.9,
+                },
+                boxShadow: 'none',
+                border: '1px solid',
+                borderColor: 'error.light',
               }}
             >
               {error}
@@ -556,9 +601,13 @@ const TimeKeeper = () => {
             <Alert 
               severity="success" 
               sx={{ 
-                mb: 3, 
+                mb: 2.5, 
                 borderRadius: 2,
-                fontSize: '0.9rem'
+                fontSize: '0.875rem',
+                '& .MuiAlert-icon': {
+                  opacity: 0.9,
+                },
+                boxShadow: 'none',
               }}
             >
               {success}
@@ -571,21 +620,21 @@ const TimeKeeper = () => {
               fullWidth 
               variant="outlined" 
               sx={{ 
-                mb: 3,
+                mb: 2.5,
                 '& .MuiOutlinedInput-root': {
-                  borderRadius: 2
+                  borderRadius: 1.5,
+                  backgroundColor: 'white',
                 }
               }}
             >
-              <InputLabel id="role-label">직원 선택</InputLabel>
+              <InputLabel id="employee-select-label">직원 선택</InputLabel>
               <Select
-                labelId="role-label"
+                labelId="employee-select-label"
                 value={employee}
                 onChange={(e) => setEmployee(e.target.value)}
                 label="직원 선택"
                 sx={{ 
-                  fontSize: '0.95rem',
-                  fontWeight: 'medium'
+                  fontSize: '0.9375rem',
                 }}
               >
                 {employees.map((emp) => (
@@ -597,29 +646,15 @@ const TimeKeeper = () => {
             </FormControl>
           )}
           
-          {/* 기본 근무 시간 템플릿 버튼 */}
-          {defaultSchedules.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <Button
-                variant="outlined"
-                startIcon={<EventNoteIcon />}
-                onClick={handleOpenDefaultScheduleDialog}
-                size="medium"
-                sx={{ borderRadius: 2 }}
-              >
-                기본 근무 시간 템플릿 사용하기
-              </Button>
-            </Box>
-          )}
-          
           {/* 시간 선택 영역 */}
           <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
             <Stack 
-              spacing={3}
+              spacing={2.5}
               sx={{ 
-                mb: 3,
+                mb: 2.5,
                 '& .MuiOutlinedInput-root': {
-                  borderRadius: 2
+                  borderRadius: 1.5,
+                  backgroundColor: 'white',
                 }
               }}
             >
@@ -631,9 +666,10 @@ const TimeKeeper = () => {
                 <Typography 
                   variant="subtitle2" 
                   sx={{ 
-                    mb: 1, 
-                    fontWeight: 'bold',
-                    color: 'text.primary'
+                    mb: 0.5, 
+                    fontWeight: 'medium',
+                    color: 'text.primary',
+                    fontSize: '0.875rem',
                   }}
                 >
                   시작 시간
@@ -643,9 +679,8 @@ const TimeKeeper = () => {
                   onChange={(newValue) => setStartDateTime(newValue)}
                   ampm={false}
                   sx={{
-                    backgroundColor: '#f8f9fa',
                     '& .MuiInputBase-root': {
-                      fontSize: '0.95rem'
+                      fontSize: '0.9375rem'
                     }
                   }}
                 />
@@ -659,9 +694,10 @@ const TimeKeeper = () => {
                 <Typography 
                   variant="subtitle2" 
                   sx={{ 
-                    mb: 1, 
-                    fontWeight: 'bold',
-                    color: 'text.primary'
+                    mb: 0.5, 
+                    fontWeight: 'medium',
+                    color: 'text.primary',
+                    fontSize: '0.875rem',
                   }}
                 >
                   종료 시간
@@ -671,298 +707,216 @@ const TimeKeeper = () => {
                   onChange={(newValue) => setEndDateTime(newValue)}
                   ampm={false}
                   sx={{
-                    backgroundColor: '#f8f9fa',
                     '& .MuiInputBase-root': {
-                      fontSize: '0.95rem'
+                      fontSize: '0.9375rem'
                     }
                   }}
                 />
               </Box>
               
               {/* 총 근무 시간 표시 */}
-              {totalHours !== null && (
-                <Box sx={{ 
-                  display: 'flex',
-                  flexDirection: 'column',
-                  backgroundColor: 'rgba(25, 118, 210, 0.05)',
-                  borderRadius: 2,
-                  p: 2
-                }}>
-                  <Typography 
-                    variant="subtitle2" 
-                    sx={{ 
-                      mb: 1, 
-                      fontWeight: 'bold',
-                      color: 'text.primary'
-                    }}
-                  >
+              {startDateTime && endDateTime && (
+                <Box 
+                  sx={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    backgroundColor: 'rgba(0, 102, 255, 0.05)',
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary">
                     총 근무 시간
                   </Typography>
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      color: 'primary.main',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    {totalHours.toFixed(1)}시간
+                  <Typography variant="body1" fontWeight="medium" color="primary.main">
+                    {calculateHours(
+                      startDateTime.format('YYYY-MM-DDTHH:mm'),
+                      endDateTime.format('YYYY-MM-DDTHH:mm')
+                    )}시간
                   </Typography>
                 </Box>
               )}
-              
-              {/* 메모 (선택) */}
-              <Box sx={{ 
-                display: 'flex',
-                flexDirection: 'column' 
-              }}>
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ 
-                    mb: 1, 
-                    fontWeight: 'bold',
-                    color: 'text.primary'
-                  }}
-                >
-                  메모 (선택)
-                </Typography>
-                <TextField
-                  multiline
-                  rows={2}
-                  placeholder="특이사항 등을 기록하세요"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  sx={{
-                    backgroundColor: '#f8f9fa',
-                    '& .MuiInputBase-root': {
-                      fontSize: '0.95rem',
-                      borderRadius: 2
-                    }
-                  }}
-                />
-              </Box>
             </Stack>
           </LocalizationProvider>
           
-          {/* 등록 버튼 */}
-          <Button
+          {/* 비고 입력 */}
+          <TextField
             fullWidth
-            variant="contained"
-            color="primary"
-            size="large"
-            onClick={handleSubmit}
+            label="비고"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            variant="outlined"
+            multiline
+            rows={2}
             sx={{ 
-              py: 1.5, 
-              borderRadius: 2,
-              fontWeight: 'bold' 
+              mb: 2.5,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 1.5,
+                backgroundColor: 'white',
+                fontSize: '0.9375rem',
+              }
             }}
-          >
-            근무 시간 등록
-          </Button>
+          />
+          
+          {/* 버튼 영역 */}
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1.5
+          }}>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleOpenDefaultScheduleDialog}
+              fullWidth
+              sx={{ 
+                py: 1.25, 
+                borderRadius: 1.5,
+              }}
+            >
+              기본 근무시간 사용
+            </Button>
+            
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleSubmit}
+              fullWidth
+              sx={{ 
+                py: 1.25, 
+                borderRadius: 1.5,
+              }}
+            >
+              근무 시간 등록
+            </Button>
+          </Box>
         </CardContent>
       </Card>
       
-      {/* 오늘 근무 기록 */}
-      {employee && (
-        <Card 
-          elevation={0}
-          sx={{
-            borderRadius: 2,
-            border: '1px solid rgba(0, 0, 0, 0.1)',
-            overflow: 'hidden'
-          }}
-        >
+      {/* 최근 근무 기록 목록 */}
+      <Card 
+        elevation={0}
+        sx={{
+          borderRadius: 2,
+          overflow: 'hidden',
+          backgroundColor: 'white',
+        }}
+      >
+        <CardContent sx={{ p: 0 }}>
           <Box sx={{ 
             p: { xs: 2, sm: 3 },
-            backgroundColor: '#f5f5f5',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.1)'
+            borderBottom: '1px solid',
+            borderColor: 'divider',
           }}>
             <Typography 
               variant="h6" 
-              fontWeight="bold"
-              sx={{ color: 'text.primary' }}
+              fontWeight="600"
+              sx={{ mb: 0.5 }}
             >
-              오늘 근무 기록
+              최근 근무 기록
+            </Typography>
+            <Typography 
+              variant="body2" 
+              color="text.secondary"
+            >
+              {recentAttendances.length > 0 
+                ? '최근에 등록된 근무 기록입니다.' 
+                : '등록된 근무 기록이 없습니다.'}
             </Typography>
           </Box>
           
-          {recentAttendances.length === 0 ? (
-            <Box 
-              sx={{ 
-                py: 4, 
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#fafafa'
-              }}
-            >
-              <Box sx={{ 
-                width: 60, 
-                height: 60, 
-                backgroundColor: 'rgba(0,0,0,0.05)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mb: 2
-              }}>
-                <Typography variant="h4" sx={{ opacity: 0.3 }}>
-                  ?
-                </Typography>
-              </Box>
-              <Typography 
-                variant="body1" 
-                sx={{ 
-                  textAlign: 'center',
-                  color: 'text.secondary',
-                  px: 2
-                }}
-              >
-                오늘 등록된 근무 기록이 없습니다
-              </Typography>
-            </Box>
-          ) : (
-            <Box>
-              {recentAttendances.map((record, index) => {
-                // 날짜 포맷팅
-                const startTime = dayjs(record.startDateTime).format('HH:mm');
-                const endTime = dayjs(record.endDateTime).format('HH:mm');
-                
-                // 총 근무 시간 계산
-                const start = dayjs(record.startDateTime);
-                const end = dayjs(record.endDateTime);
-                const hours = end.diff(start, 'hour', true);
-                
-                // 상태 표시 (8시간 초과, 정상, 4시간 미만)
-                let statusColor = '#4caf50'; // 기본 정상(녹색)
-                let statusText = '정상';
-                
-                if (hours > 8) {
-                  statusColor = '#1976d2'; // 초과(파란색)
-                  statusText = '초과';
-                } else if (hours < 4) {
-                  statusColor = '#f44336'; // 미만(빨간색)
-                  statusText = '단시간';
-                }
-                
-                return (
-                  <Box key={record.id || index}>
-                    {index > 0 && <Divider />}
+          {recentAttendances.length > 0 && (
+            <List sx={{ 
+              p: 0,
+              '& .MuiListItem-root': {
+                px: { xs: 2, sm: 3 },
+                py: 2,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                '&:last-child': {
+                  borderBottom: 'none',
+                },
+              }
+            }}>
+              {recentAttendances.map((attendance, index) => (
+                <ListItem 
+                  key={attendance.id || index}
+                  secondaryAction={
+                    <Box>
+                      <IconButton 
+                        edge="end" 
+                        size="small"
+                        onClick={() => handleEditClick(attendance)}
+                        sx={{ mr: 0.5 }}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton 
+                        edge="end" 
+                        size="small"
+                        onClick={() => handleDeleteClick(attendance.id || '')}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  }
+                  sx={{ display: 'block' }}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box sx={{ 
-                      p: { xs: 2, sm: 3 },
-                      transition: 'background-color 0.2s',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0,0,0,0.02)'
-                      }
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
                     }}>
-                      <Box sx={{ 
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        mb: 1
-                      }}>
-                        {/* 시간 표시 */}
-                        <Typography 
-                          variant="subtitle1" 
-                          sx={{ 
-                            fontWeight: 'bold',
-                            fontSize: '0.95rem'
-                          }}
-                        >
-                          {startTime} - {endTime}
-                        </Typography>
-                        
-                        {/* 상태 표시 */}
-                        <Box sx={{
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 5,
-                          backgroundColor: `${statusColor}20`,
-                          border: `1px solid ${statusColor}40`
-                        }}>
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              color: statusColor,
-                              fontWeight: 'bold',
-                              fontSize: '0.7rem'
-                            }}
-                          >
-                            {statusText}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      
-                      {/* 근무 시간 */}
                       <Typography 
-                        variant="h6" 
+                        component="div" 
+                        variant="subtitle1"
+                        fontWeight="medium"
+                      >
+                        {dayjs(attendance.startDateTime).format('YYYY년 MM월 DD일')}
+                      </Typography>
+                      <Typography 
+                        component="div" 
+                        variant="body2"
+                        color="primary"
+                        fontWeight="medium"
+                      >
+                        {calculateHours(attendance.startDateTime || '', attendance.endDateTime || '')}시간
+                      </Typography>
+                    </Box>
+                    
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary"
+                      sx={{ display: 'flex', alignItems: 'center' }}
+                    >
+                      <AccessTimeIcon />
+                      {dayjs(attendance.startDateTime).format('HH:mm')} - {dayjs(attendance.endDateTime).format('HH:mm')}
+                    </Typography>
+                    
+                    {attendance.notes && (
+                      <Typography 
+                        variant="body2" 
+                        color="text.secondary"
                         sx={{ 
-                          fontWeight: 'bold',
-                          color: statusColor,
-                          mb: 1
+                          mt: 0.5,
+                          p: 1,
+                          backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                          borderRadius: 1,
                         }}
                       >
-                        {hours.toFixed(1)}시간
+                        {attendance.notes}
                       </Typography>
-                      
-                      {/* 비고 */}
-                      {record.notes && (
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            color: 'text.secondary',
-                            mb: 2,
-                            fontStyle: 'italic',
-                            p: 1,
-                            borderRadius: 1,
-                            backgroundColor: 'rgba(0,0,0,0.03)'
-                          }}
-                        >
-                          {record.notes}
-                        </Typography>
-                      )}
-                      
-                      {/* 수정/삭제 버튼 */}
-                      <Box sx={{ 
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        gap: 1
-                      }}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="primary"
-                          onClick={() => handleEditClick(record)}
-                          sx={{ 
-                            borderRadius: 2,
-                            fontSize: '0.75rem',
-                            px: 2
-                          }}
-                        >
-                          수정
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={() => handleDeleteClick(record.id!)}
-                          sx={{ 
-                            borderRadius: 2,
-                            fontSize: '0.75rem',
-                            px: 2
-                          }}
-                        >
-                          삭제
-                        </Button>
-                      </Box>
-                    </Box>
+                    )}
                   </Box>
-                );
-              })}
-            </Box>
+                </ListItem>
+              ))}
+            </List>
           )}
-        </Card>
-      )}
+        </CardContent>
+      </Card>
       
       {/* 수정 다이얼로그 */}
       <Dialog 
