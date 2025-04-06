@@ -69,6 +69,17 @@ const Dashboard: React.FC = () => {
             <Typography variant="body1" sx={{ mr: 2 }}>
               {user?.name || user?.id || '사용자'}님 환영합니다
             </Typography>
+            {isAdmin && (
+              <Button 
+                color="primary" 
+                variant="contained" 
+                size="small" 
+                onClick={() => navigate('/admin')}
+                sx={{ mr: 1 }}
+              >
+                관리자 페이지
+              </Button>
+            )}
             <Button color="primary" variant="outlined" size="small" onClick={handleLogout}>
               로그아웃
             </Button>

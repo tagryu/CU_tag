@@ -30,7 +30,8 @@ dayjs.locale('ko');
 
 // 스타일이 적용된 달력 날짜 박스
 const DateBox = styled(Paper)(({ theme }) => ({
-  height: '120px',
+  height: 'auto',
+  aspectRatio: '1',
   padding: theme.spacing(1),
   textAlign: 'center',
   cursor: 'pointer',
@@ -50,12 +51,26 @@ const DateBox = styled(Paper)(({ theme }) => ({
 
 // 오늘 날짜 스타일
 const TodayBox = styled(DateBox)(({ theme }) => ({
-  backgroundColor: theme.palette.primary.light,
-  color: theme.palette.common.white,
-  border: `2px solid ${theme.palette.primary.main}`,
+  backgroundColor: '#e3f2fd',
+  color: theme.palette.common.black,
+  border: `2px solid #1976d2`,
   boxShadow: theme.shadows[2],
+  position: 'relative',
+  '&::after': {
+    content: '"오늘"',
+    position: 'absolute',
+    top: '-8px',
+    right: '-8px',
+    backgroundColor: '#1976d2',
+    color: 'white',
+    padding: '1px 6px',
+    borderRadius: '10px',
+    fontSize: '0.6rem',
+    fontWeight: 'bold',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+  },
   '&:hover': {
-    backgroundColor: theme.palette.primary.main,
+    backgroundColor: '#bbdefb',
     transform: 'translateY(-4px)',
     boxShadow: theme.shadows[4],
   }
@@ -63,7 +78,8 @@ const TodayBox = styled(DateBox)(({ theme }) => ({
 
 // 빈 날짜 박스
 const EmptyBox = styled(Box)(({ theme }) => ({
-  height: '120px',
+  height: 'auto',
+  aspectRatio: '1',
   padding: theme.spacing(1),
   textAlign: 'center',
   backgroundColor: theme.palette.grey[50],
@@ -73,12 +89,39 @@ const EmptyBox = styled(Box)(({ theme }) => ({
 
 // 근무자 배지 스타일
 const EmployeeBadge = styled(Chip)(({ theme }) => ({
-  margin: '2px',
-  fontSize: '0.7rem',
-  height: '22px',
+  margin: '1px',
+  fontSize: '0.65rem',
+  height: '18px',
   backgroundColor: theme.palette.primary.light,
   color: theme.palette.common.white,
   fontWeight: 'bold',
+  boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+}));
+
+// 이벤트 스타일을 위한 인터페이스 정의
+interface EventItemProps {
+  bgcolor?: string;
+}
+
+// 이벤트 스타일
+const EventItem = styled(Box)<EventItemProps>(({ theme, bgcolor = '#4285F4' }) => ({
+  padding: '2px 4px',
+  borderRadius: '4px',
+  marginBottom: '2px',
+  fontSize: '0.7rem',
+  fontWeight: 'bold',
+  color: 'white',
+  backgroundColor: bgcolor,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  width: '100%',
+  boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+  cursor: 'pointer',
+  '&:hover': {
+    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+    opacity: 0.9
+  }
 }));
 
 const AttendanceCalendar = () => {
@@ -243,75 +286,73 @@ const AttendanceCalendar = () => {
       }
     });
 
-    // 최대 3명까지만 표시하고 나머지는 +N으로 표시
-    const maxDisplay = 3;
-    const idArray = Array.from(employeeIds);
-    const displayCount = Math.min(maxDisplay, idArray.length);
-    const remainingCount = idArray.length - displayCount;
+    // 구성된 이벤트 목록
+    const events: {id: string, name: string, color: string}[] = [];
+    
+    // 모든 직원 기록을 이벤트 스타일로 구성
+    Array.from(employeeIds).forEach((id, index) => {
+      const name = employeeNames[id] || id;
+      // 다양한 색상 사용
+      const colors = ['#4285F4', '#0F9D58', '#DB4437', '#F4B400', '#8833FF'];
+      events.push({
+        id,
+        name,
+        color: colors[index % colors.length]
+      });
+    });
 
-    // 근무자가 없는 경우
-    if (idArray.length === 0) {
-      return null;
-    }
+    // 화면 크기에 따라 표시할 최대 이벤트 수 조정
+    const maxDisplay = { xs: 2, sm: 3, md: 4 };
+    const maxDisplayCount = window.innerWidth < 600 ? maxDisplay.xs : 
+                             window.innerWidth < 960 ? maxDisplay.sm : maxDisplay.md;
+    
+    // 이벤트가 많을 때 나머지를 +N 형태로 표시하는 로직
+    const displayEvents = events.slice(0, maxDisplayCount);
+    const remainingCount = events.length - maxDisplayCount;
 
+    // 구글 캘린더 스타일 이벤트 표시
     return (
       <Box sx={{ 
         mt: 'auto', 
         display: 'flex', 
         flexDirection: 'column', 
         alignItems: 'center',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        justifyContent: 'flex-start',
+        width: '100%'
       }}>
-        <Box sx={{ 
-          width: '100%', 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          justifyContent: 'center',
-          gap: 0.5
-        }}>
-          {idArray.slice(0, displayCount).map(id => {
-            const name = employeeNames[id] || id;
-            // 이름이 길면 짧게 줄임
-            const displayName = name.length > 5 ? `${name.substring(0, 4)}..` : name;
-            
-            return (
-              <EmployeeBadge
-                key={id}
-                label={displayName}
-                size="small"
-              />
-            );
-          })}
-          
-          {remainingCount > 0 && (
-            <EmployeeBadge
-              label={`+${remainingCount}명`}
-              size="small"
-              sx={{ 
-                bgcolor: 'grey.500',
-                '&:hover': {
-                  bgcolor: 'grey.600',
-                }
-              }}
-            />
-          )}
-        </Box>
-        
-        {idArray.length > 0 && (
+        {displayEvents.map(event => (
+          <EventItem 
+            key={event.id}
+            bgcolor={event.color}
+            title={event.name}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDateClick(day);
+            }}
+            sx={{
+              fontSize: { xs: '0.6rem', sm: '0.65rem', md: '0.7rem' },
+              py: { xs: 1, sm: 2 }
+            }}
+          >
+            {event.name.length > 6 ? `${event.name.substring(0, 5)}..` : event.name}
+          </EventItem>
+        ))}
+        {remainingCount > 0 && (
           <Typography 
             variant="caption" 
             sx={{ 
-              mt: 0.5, 
-              fontSize: '0.7rem',
+              fontSize: '0.65rem',
               color: 'text.secondary',
-              bgcolor: 'rgba(0,0,0,0.03)',
+              mt: 0.5,
+              fontWeight: 'bold',
+              bgcolor: 'rgba(0,0,0,0.05)',
               px: 1,
-              py: 0.25,
-              borderRadius: 1,
-              fontWeight: 'medium',
+              py: 0.5,
+              borderRadius: 1
             }}
           >
-            총 {idArray.length}명 근무
+            +{remainingCount}명
           </Typography>
         )}
       </Box>
@@ -333,30 +374,134 @@ const AttendanceCalendar = () => {
     // 오늘 날짜인 경우 강조 표시
     const DayComponent = isTodayDate ? TodayBox : DateBox;
     
+    // 주말 여부 확인 
+    const isWeekend = day.day() === 0 || day.day() === 6;
+    
     return (
       <DayComponent 
         key={day.format('YYYY-MM-DD')} 
         onClick={() => handleDateClick(day)}
         elevation={hasAttendance ? 2 : 0}
-        sx={hasAttendance ? {
-          // 근무 기록이 있는 날짜는 테두리 강조
-          borderLeft: '3px solid #1976d2',
-        } : {}}
+        sx={{
+          borderLeft: isWeekend && !isTodayDate ? 
+            (day.day() === 0 ? '3px solid #f44336' : '3px solid #1976d2') : undefined,
+          position: 'relative',
+          height: { xs: '80px', sm: '100px', md: '110px' }, // 모바일에서는 더 작게
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}
       >
-        <Typography 
-          variant="subtitle1" 
-          sx={{ 
-            fontWeight: 'bold', 
-            mb: 1,
-            color: isTodayDate ? 'white' :
-                   day.day() === 0 ? 'error.main' : 
-                   day.day() === 6 ? 'primary.main' : 'inherit'
-          }}
-        >
-          {day.date()}
-        </Typography>
-        {renderEmployeeBadges(day)}
+        <Box sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          width: { xs: '24px', sm: '28px' },
+          height: { xs: '24px', sm: '28px' },
+          margin: '0 0 2px 0',
+          borderRadius: '50%',
+          backgroundColor: isWeekend && !isTodayDate ? 
+            (day.day() === 0 ? '#ffebee' : '#e3f2fd') : 
+            'transparent',
+          position: 'absolute',
+          top: '2px',
+          left: '2px'
+        }}>
+          <Typography 
+            variant="body2" 
+            sx={{ 
+              fontWeight: isTodayDate ? 'bold' : 'medium',
+              fontSize: { xs: '0.7rem', sm: '0.8rem' },
+              color: isTodayDate ? '#1976d2' :
+                    day.day() === 0 ? '#f44336' : 
+                    day.day() === 6 ? '#1976d2' : 'inherit'
+            }}
+          >
+            {day.date()}
+          </Typography>
+        </Box>
+        
+        <Box sx={{ pt: { xs: 3.5, sm: 4.5 }, width: '100%' }}>
+          {renderEmployeeBadges(day)}
+        </Box>
       </DayComponent>
+    );
+  };
+
+  // iOS 스타일 달력용 근무자 배지 렌더링
+  const renderIOSStyleBadges = (day: dayjs.Dayjs) => {
+    const dateStr = day.format('YYYY-MM-DD');
+    const recordsForDay = attendanceData[dateStr] || [];
+
+    // 중복 제거를 위해 set 사용
+    const employeeIds = new Set<string>();
+    recordsForDay.forEach((record: any) => {
+      const employeeId = record.employee_id || record.employeeId;
+      if (employeeId) {
+        employeeIds.add(employeeId);
+      }
+    });
+
+    // 구성된 이벤트 목록
+    const events: {id: string, name: string, color: string}[] = [];
+    
+    // 모든 직원 기록을 이벤트 스타일로 구성
+    Array.from(employeeIds).forEach((id, index) => {
+      const name = employeeNames[id] || id;
+      // 다양한 색상 사용
+      const colors = ['#4285F4', '#0F9D58', '#DB4437', '#F4B400', '#8833FF'];
+      events.push({
+        id,
+        name,
+        color: colors[index % colors.length]
+      });
+    });
+
+    // 모바일에서는 최대 2개만 표시
+    const maxDisplayCount = 2;
+    const displayEvents = events.slice(0, maxDisplayCount);
+    const remainingCount = events.length - maxDisplayCount;
+
+    return (
+      <>
+        {displayEvents.map(event => (
+          <Box 
+            key={event.id}
+            sx={{
+              width: '90%',
+              mb: 0.25,
+              py: 0.25,
+              px: 0.5,
+              borderRadius: '10px',
+              backgroundColor: event.color,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            <Typography sx={{
+              fontSize: '0.6rem',
+              color: 'white',
+              fontWeight: 'bold',
+              textAlign: 'center',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {event.name.length > 3 ? `${event.name.substring(0, 2)}..` : event.name}
+            </Typography>
+          </Box>
+        ))}
+        {remainingCount > 0 && (
+          <Typography sx={{
+            fontSize: '0.55rem',
+            color: 'text.secondary',
+            fontWeight: 'bold'
+          }}>
+            +{remainingCount}
+          </Typography>
+        )}
+      </>
     );
   };
 
@@ -389,14 +534,14 @@ const AttendanceCalendar = () => {
   }
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: '100%', margin: '0 auto', px: { xs: 0, sm: 1, md: 2 } }}>
       <Box sx={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 
-        mb: 3,
+        mb: 2,
         borderBottom: '2px solid #1976d2',
-        paddingBottom: 2
+        paddingBottom: 1.5
       }}>
         <Button 
           onClick={goToPrevMonth}
@@ -404,21 +549,23 @@ const AttendanceCalendar = () => {
           size="small"
           sx={{ 
             borderRadius: 2,
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            minWidth: { xs: '40px', sm: '80px' },
+            px: { xs: 1, sm: 2 }
           }}
-          disabled={loading}
+          startIcon={<span>◀</span>}
         >
-          {'< 이전 달'}
+          <Box sx={{ display: { xs: 'none', sm: 'block' } }}>이전 달</Box>
         </Button>
         <Typography 
           variant="h5" 
           sx={{ 
             fontWeight: 'bold',
-            color: '#1976d2'
+            color: '#1976d2',
+            fontSize: { xs: '1.25rem', sm: '1.5rem', md: '2rem' }
           }}
         >
           {currentDate.format('YYYY년 MM월')}
-          {loading && <CircularProgress size={20} sx={{ ml: 1, verticalAlign: 'middle' }} />}
         </Typography>
         <Button 
           onClick={goToNextMonth}
@@ -426,52 +573,133 @@ const AttendanceCalendar = () => {
           size="small"
           sx={{ 
             borderRadius: 2,
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            minWidth: { xs: '40px', sm: '80px' },
+            px: { xs: 1, sm: 2 }
           }}
-          disabled={loading}
+          endIcon={<span>▶</span>}
         >
-          {'다음 달 >'}
+          <Box sx={{ display: { xs: 'none', sm: 'block' } }}>다음 달</Box>
         </Button>
       </Box>
       
-      <Grid container spacing={1} sx={{ mb: 3 }}>
-        <Grid container item spacing={1}>
+      {/* iOS 스타일 달력 */}
+      <Box sx={{ 
+        width: '100%', 
+        overflowX: 'hidden',
+        mb: 3 
+      }}>
+        {/* 요일 헤더 */}
+        <Box 
+          sx={{ 
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, 1fr)',
+            gap: 0.5,
+            mb: 0.5
+          }}
+        >
           {['일', '월', '화', '수', '목', '금', '토'].map((day, index) => (
-            <Grid item xs={12/7} key={index}>
+            <Box key={index} sx={{ textAlign: 'center' }}>
               <Typography 
                 align="center" 
                 sx={{ 
                   fontWeight: 'bold',
-                  py: 1,
-                  backgroundColor: index === 0 ? '#ffebee' : 
-                                   index === 6 ? '#e3f2fd' : '#f5f5f5',
+                  py: { xs: 0.5, sm: 0.75 },
                   color: index === 0 ? 'error.main' : 
                          index === 6 ? 'primary.main' : 'inherit',
-                  borderRadius: 1
+                  fontSize: { xs: '0.7rem', sm: '0.8rem', md: '0.9rem' }
                 }}
               >
                 {day}
               </Typography>
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
         
+        {/* 달력 그리드 - iOS 스타일 */}
         {calendarDays.map((week, weekIndex) => (
-          <Grid container item spacing={1} key={weekIndex}>
+          <Box 
+            key={weekIndex}
+            sx={{ 
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, 1fr)',
+              gap: 0.5,
+              mb: 0.5
+            }}
+          >
             {week.map((day, dayIndex) => (
-              <Grid item xs={12/7} key={dayIndex}>
-                {renderDay(day)}
-              </Grid>
+              <Box key={dayIndex} sx={{ 
+                aspectRatio: '1/1',
+                border: 'none',
+                borderRadius: 1,
+                position: 'relative',
+                cursor: 'pointer',
+                backgroundColor: isToday(day) ? 'rgba(25, 118, 210, 0.1)' : 
+                                (dayIndex === 0 || dayIndex === 6) && isCurrentMonth(day) ? 'rgba(0, 0, 0, 0.02)' : 
+                                'transparent',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.05)'
+                }
+              }} onClick={() => handleDateClick(day)}>
+                {/* 날짜 숫자 */}
+                <Box sx={{
+                  width: '100%',
+                  height: '22px',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  pt: 0.5
+                }}>
+                  <Typography sx={{
+                    fontSize: { xs: '0.8rem', sm: '0.85rem' },
+                    fontWeight: isToday(day) ? 'bold' : 'normal',
+                    color: isToday(day) ? 'white' : 
+                           !isCurrentMonth(day) ? 'rgb(0, 0, 0, 0.4)' : 
+                           dayIndex === 0 ? '#f44336' :
+                           dayIndex === 6 ? '#1976d2' : 
+                           'inherit',
+                    width: isToday(day) ? '22px' : 'auto',
+                    height: isToday(day) ? '22px' : 'auto',
+                    borderRadius: '50%',
+                    backgroundColor: isToday(day) ? '#1976d2' : 'transparent',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}>
+                    {day.date()}
+                  </Typography>
+                </Box>
+                
+                {/* 근무자 표시 */}
+                {isCurrentMonth(day) && (
+                  <Box sx={{ 
+                    width: '100%', 
+                    flex: 1, 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    justifyContent: 'flex-start',
+                    alignItems: 'center',
+                    px: 0.25,
+                    pt: 0.5
+                  }}>
+                    {/* 근무자 리스트 */}
+                    {renderIOSStyleBadges(day)}
+                  </Box>
+                )}
+              </Box>
             ))}
-          </Grid>
+          </Box>
         ))}
-      </Grid>
+      </Box>
       
       {/* 근무 상세 조회 다이얼로그 */}
       <Dialog 
         open={dialogOpen} 
         onClose={handleCloseDialog}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
@@ -486,9 +714,28 @@ const AttendanceCalendar = () => {
           fontWeight: 'bold',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          alignItems: 'center',
+          py: 2
         }}>
-          <Box>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            fontSize: '1.2rem'
+          }}>
+            <Box sx={{
+              bgcolor: '#1976d2',
+              color: 'white',
+              borderRadius: '50%',
+              width: 40,
+              height: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mr: 2,
+              fontWeight: 'bold'
+            }}>
+              {selectedDate?.date()}
+            </Box>
             {selectedDate?.format('YYYY년 MM월 DD일')} 근무 기록
             {loadingDetails && <CircularProgress size={16} sx={{ ml: 1, verticalAlign: 'middle' }} />}
           </Box>
@@ -515,7 +762,7 @@ const AttendanceCalendar = () => {
             </Box>
           ) : dayAttendances.length === 0 ? (
             <Box sx={{ 
-              p: 4, 
+              p: 5, 
               textAlign: 'center',
               display: 'flex',
               flexDirection: 'column',
@@ -523,13 +770,33 @@ const AttendanceCalendar = () => {
               justifyContent: 'center',
               gap: 2,
               bgcolor: '#f9f9f9',
-              minHeight: '200px'
+              minHeight: '250px'
             }}>
+              <Box sx={{
+                width: 80,
+                height: 80,
+                borderRadius: '50%',
+                bgcolor: 'rgba(0,0,0,0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 2
+              }}>
+                <Typography variant="h3" sx={{ color: 'rgba(0,0,0,0.2)' }}>
+                  ?
+                </Typography>
+              </Box>
               <Typography 
-                variant="body1" 
+                variant="h6" 
                 sx={{ color: 'text.secondary' }}
               >
                 이 날짜에는 등록된 근무 기록이 없습니다.
+              </Typography>
+              <Typography 
+                variant="body2" 
+                sx={{ color: 'text.secondary', maxWidth: '450px' }}
+              >
+                근무 시간 등록 메뉴에서 근무 기록을 추가할 수 있습니다.
               </Typography>
             </Box>
           ) : (
@@ -580,8 +847,8 @@ const AttendanceCalendar = () => {
                   <React.Fragment key={record.id || index}>
                     {index > 0 && <Divider />}
                     <ListItem sx={{ 
-                      px: 3, 
-                      py: 2,
+                      px: 4, 
+                      py: 3,
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'flex-start',
@@ -653,16 +920,17 @@ const AttendanceCalendar = () => {
         </DialogContent>
         <DialogActions sx={{ 
           borderTop: '1px solid #e0e0e0',
-          p: 2,
+          p: 2.5,
           justifyContent: 'center'
         }}>
           <Button 
             onClick={handleCloseDialog} 
             variant="contained"
             sx={{ 
-              minWidth: '120px',
+              minWidth: '150px',
               fontWeight: 'bold',
-              borderRadius: 2
+              borderRadius: 2,
+              py: 1
             }}
           >
             닫기

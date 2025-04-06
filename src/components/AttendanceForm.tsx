@@ -222,8 +222,8 @@ const AttendanceForm: React.FC<AttendanceFormProps> = ({ employeeId }) => {
                     </Grid>
                     <Grid item xs={2}>
                       <Typography variant="body2" align="right">
-                        {((new Date(attendance.endDateTime).getTime() - 
-                          new Date(attendance.startDateTime).getTime()) / (1000 * 60 * 60)).toFixed(1)}시간
+                        {((new Date(attendance.endDateTime || '').getTime() - 
+                          new Date(attendance.startDateTime || '').getTime()) / (1000 * 60 * 60)).toFixed(1)}시간
                       </Typography>
                     </Grid>
                   </Grid>

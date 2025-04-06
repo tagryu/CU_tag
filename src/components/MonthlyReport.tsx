@@ -19,7 +19,7 @@ import {
 import { Grid } from './GridFix';
 import { attendanceService } from '../services/attendanceService';
 
-// ReportData 인터페이스 정의
+// 로컬 타입 정의 (서비스에서 반환하는 타입에 맞춤)
 interface ReportData {
   employeeId: string;
   employeeName: string;
@@ -57,7 +57,16 @@ const MonthlyReport: React.FC = () => {
       
       try {
         const data = await attendanceService.generateMonthlyReport(month);
-        setReportData(data as ReportData[]);
+        // 서비스에서 반환하는 데이터를 현재 컴포넌트에서 사용하는 형식으로 변환
+        const formattedData: ReportData[] = data.map((item: any) => ({
+          employeeId: item.employeeId,
+          employeeName: item.employeeName,
+          workDays: item.workDays || 0,
+          totalHours: item.totalHours || 0,
+          absenceDays: item.absenceDays || 0,
+          efficiency: item.efficiency
+        }));
+        setReportData(formattedData);
       } catch (err: any) {
         console.error('월별 보고서 로드 오류:', err);
         setError('보고서 데이터를 불러오는 중 오류가 발생했습니다.');
@@ -182,7 +191,7 @@ const MonthlyReport: React.FC = () => {
                     <TableCell align="right">{employee.totalHours.toFixed(1)}시간</TableCell>
                     <TableCell align="right">{employee.absenceDays}일</TableCell>
                     <TableCell align="right">
-                      {employee.efficiency ? `${(employee.efficiency * 100).toFixed(0)}%` : 'N/A'}
+                      {employee.efficiency ? `${employee.efficiency}%` : 'N/A'}
                     </TableCell>
                   </TableRow>
                 ))}

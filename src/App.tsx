@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SignupPage from './pages/SignupPage';
+import AdminPage from './pages/AdminPage';
 import './App.css';
 
 // 테마 설정
@@ -28,18 +29,22 @@ const theme = createTheme({
 });
 
 // 인증이 필요한 라우트를 래핑하는 컴포넌트
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth();
+const ProtectedRoute = ({ children, admin }: { children: React.ReactNode, admin?: boolean }) => {
+  const { isAuthenticated, isAdmin } = useAuth();
   
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
+  }
+  
+  if (admin && !isAdmin) {
+    return <Navigate to="/dashboard" />;
   }
   
   return <>{children}</>;
 };
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   
   return (
     <Routes>
@@ -50,6 +55,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin" 
+        element={
+          <ProtectedRoute admin>
+            <AdminPage />
           </ProtectedRoute>
         } 
       />

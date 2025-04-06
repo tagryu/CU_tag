@@ -339,13 +339,26 @@ export const attendanceService = {
   },
   
   // 근태 기록 삭제
-  deleteAttendance: async (id: string): Promise<void> => {
-    const { error } = await supabase
-      .from('attendances')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
+  deleteAttendance: async (id: string): Promise<boolean> => {
+    try {
+      console.log('근무 기록 삭제 중...', id);
+      
+      const { error } = await supabase
+        .from('attendances')
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('근무 기록 삭제 오류:', error);
+        throw error;
+      }
+      
+      console.log('근무 기록 삭제 성공');
+      return true;
+    } catch (err) {
+      console.error('deleteAttendance 오류:', err);
+      throw err;
+    }
   },
   
   // 월별 보고서 생성 및 다운로드
@@ -517,6 +530,528 @@ export const attendanceService = {
       return userInfo;
     } catch (err) {
       console.error('로그인 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 모든 근무 기록 가져오기 (어드민용)
+  getAllAttendances: async (page: number = 1, limit: number = 20): Promise<{
+    data: AttendanceRecord[],
+    count: number
+  }> => {
+    try {
+      console.log('모든 근무 기록 조회 중...');
+      
+      // 전체 카운트 먼저 가져오기
+      const { data: countData, error: countError } = await supabase
+        .from('attendances')
+        .select('id', { count: 'exact', head: true });
+      
+      if (countError) {
+        console.error('근무 기록 카운트 오류:', countError);
+        throw countError;
+      }
+      
+      const totalCount = countData ? countData.length : 0;
+      
+      // 페이지네이션 적용하여 데이터 가져오기
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      
+      const { data, error } = await supabase
+        .from('attendances')
+        .select('*, employees(id, name)')
+        .range(from, to)
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('근무 기록 조회 오류:', error);
+        throw error;
+      }
+      
+      console.log('조회된 모든 근무 기록:', data);
+      
+      // 데이터 변환
+      const records = data.map(record => ({
+        id: record.id,
+        employeeId: record.employee_id,
+        employeeName: record.employees?.name || '알 수 없음',
+        startDateTime: `${record.date}T${record.start_time}`,
+        endDateTime: `${record.date}T${record.end_time}`,
+        totalHours: record.total_hours,
+        notes: record.notes || ''
+      }));
+      
+      return {
+        data: records,
+        count: totalCount
+      };
+    } catch (err) {
+      console.error('getAllAttendances 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 기간 내 모든 직원의 근무 기록 가져오기 (어드민용)
+  getAllAttendancesByPeriod: async (
+    startDate: string,
+    endDate: string
+  ): Promise<AttendanceRecord[]> => {
+    try {
+      console.log('기간별 모든 근무 기록 조회 중...', startDate, endDate);
+      
+      // attendances 테이블에서 조회
+      const { data, error } = await supabase
+        .from('attendances')
+        .select('*, employees(id, name, work_time)')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('기간별 근무 기록 조회 오류:', error);
+        throw error;
+      }
+      
+      console.log('조회된 기간별 근무 기록:', data);
+      
+      // 데이터 변환 - 업데이트된 AttendanceRecord 타입 활용
+      const records = data.map(record => ({
+        id: record.id,
+        employee_id: record.employee_id,
+        employeeId: record.employee_id,
+        date: record.date,
+        start_time: record.start_time,
+        end_time: record.end_time,
+        startDateTime: `${record.date}T${record.start_time}`,
+        endDateTime: `${record.date}T${record.end_time}`,
+        total_hours: record.total_hours,
+        totalHours: record.total_hours,
+        employee_name: record.employees?.name || '알 수 없음',
+        employeeName: record.employees?.name || '알 수 없음',
+        work_time: record.employees?.work_time || null,
+        notes: record.notes || ''
+      }));
+      
+      console.log('변환된 기간별 근무 기록:', records);
+      return records;
+    } catch (err) {
+      console.error('getAllAttendancesByPeriod 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 사용자별 근무 시간 통계 (어드민용)
+  getUserWorkStats: async (
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{
+    employee_id: string,
+    employee_name: string,
+    work_time: string | null,
+    work_days: number,
+    total_hours: number,
+    avg_hours_per_day: number
+  }>> => {
+    try {
+      console.log('사용자별 근무 통계 조회 중...', startDate, endDate);
+      
+      // 모든 직원 정보 가져오기 (work_time 필드 포함)
+      const { data: employees, error: empError } = await supabase
+        .from('employees')
+        .select('id, name, work_time');
+      
+      if (empError) {
+        console.error('직원 목록 조회 오류:', empError);
+        throw empError;
+      }
+      
+      // 근무 기록 가져오기
+      const { data: records, error } = await supabase
+        .from('attendances')
+        .select('*')
+        .gte('date', startDate)
+        .lte('date', endDate);
+      
+      if (error) {
+        console.error('근무 기록 조회 오류:', error);
+        throw error;
+      }
+      
+      console.log('조회된 직원 목록:', employees);
+      console.log('조회된 근무 기록:', records);
+      
+      // 사용자별 통계 계산
+      const stats = employees.map(emp => {
+        // 해당 직원의 근무 기록 필터링
+        const empRecords = records.filter(r => r.employee_id === emp.id);
+        
+        // 총 근무 일수 (중복 날짜 제거)
+        const workDays = new Set(empRecords.map(r => r.date)).size;
+        
+        // 총 근무 시간
+        const totalHours = empRecords.reduce((sum, r) => sum + (parseFloat(r.total_hours) || 0), 0);
+        
+        // 일평균 근무 시간
+        const avgHoursPerDay = workDays > 0 ? totalHours / workDays : 0;
+        
+        return {
+          employee_id: emp.id,                             // AdminPage.tsx에서 사용하는 필드명으로 변경
+          employee_name: emp.name || emp.id,               // AdminPage.tsx에서 사용하는 필드명으로 변경
+          work_time: emp.work_time || null,                // work_time 필드 추가
+          work_days: workDays,                             // AdminPage.tsx에서 사용하는 필드명으로 변경
+          total_hours: parseFloat(totalHours.toFixed(1)),  // AdminPage.tsx에서 사용하는 필드명으로 변경
+          avg_hours_per_day: parseFloat(avgHoursPerDay.toFixed(1))  // 필드명 변경
+        };
+      });
+      
+      console.log('계산된 사용자별 통계:', stats);
+      return stats;
+    } catch (err) {
+      console.error('getUserWorkStats 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 관리자 계정 생성 함수
+  createAdminAccount: async (adminData: {
+    id: string,
+    password: string,
+    name?: string
+  }) => {
+    try {
+      console.log('관리자 계정 생성 중...', adminData.id);
+      
+      // 이미 존재하는 계정인지 확인
+      const { data: existingUser, error: checkError } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('id', adminData.id)
+        .single();
+      
+      // 에러가 있지만 존재하지 않는 사용자라면 계속 진행
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('사용자 확인 중 오류:', checkError);
+        throw checkError;
+      }
+      
+      // 사용자가 이미 존재하면 오류
+      if (existingUser) {
+        throw new Error('이미 존재하는 ID입니다.');
+      }
+      
+      // 관리자 계정 생성
+      const { data, error } = await supabase
+        .from('employees')
+        .insert([{
+          id: adminData.id,
+          name: adminData.name || `관리자_${adminData.id}`,
+          password: adminData.password,
+          role: 'admin'
+        }])
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('관리자 계정 생성 오류:', error);
+        throw error;
+      }
+      
+      console.log('관리자 계정 생성 성공:', data);
+      
+      // 비밀번호 제외하고 반환
+      const { password: _, ...userData } = data;
+      return userData;
+    } catch (err) {
+      console.error('관리자 계정 생성 중 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 일반 직원 계정 등록
+  registerEmployee: async (userData: {
+    id: string,
+    password: string,
+    name?: string
+  }) => {
+    try {
+      console.log('직원 계정 등록 중...', userData.id);
+      
+      // 이미 존재하는 계정인지 확인
+      const { data: existingUser, error: checkError } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('id', userData.id)
+        .single();
+      
+      // 에러가 있지만 존재하지 않는 사용자라면 계속 진행
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('사용자 확인 중 오류:', checkError);
+        throw checkError;
+      }
+      
+      // 사용자가 이미 존재하면 오류
+      if (existingUser) {
+        throw new Error('이미 존재하는 ID입니다.');
+      }
+      
+      // 직원 계정 생성
+      const { data, error } = await supabase
+        .from('employees')
+        .insert([{
+          id: userData.id,
+          name: userData.name || userData.id,
+          password: userData.password,
+          role: 'employee'  // 기본값은 일반 직원
+        }])
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('직원 계정 생성 오류:', error);
+        throw error;
+      }
+      
+      console.log('직원 계정 생성 성공:', data);
+      
+      return { data, error: null };
+    } catch (err) {
+      console.error('직원 계정 등록 중 오류:', err);
+      return { data: null, error: err };
+    }
+  },
+  
+  // 기존 사용자를 관리자로 승급
+  promoteToAdmin: async (userId: string) => {
+    try {
+      console.log('사용자를 관리자로 승급 중...', userId);
+      
+      const { data, error } = await supabase
+        .from('employees')
+        .update({ role: 'admin' })
+        .eq('id', userId)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('관리자 승급 오류:', error);
+        throw error;
+      }
+      
+      console.log('관리자 승급 성공:', data);
+      
+      // 비밀번호 제외하고 반환
+      const { password: _, ...userData } = data;
+      return userData;
+    } catch (err) {
+      console.error('관리자 승급 중 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 현재 등록된 직원 정보 확인
+  getEmployeeByIdOrEmail: async (idOrEmail: string) => {
+    try {
+      console.log('직원 정보 조회 중...', idOrEmail);
+      
+      // ID로 검색
+      const { data, error } = await supabase
+        .from('employees')
+        .select('*')
+        .or(`id.eq.${idOrEmail},email.eq.${idOrEmail}`)
+        .limit(1);
+      
+      if (error) {
+        console.error('직원 정보 조회 오류:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        console.log('직원 정보 조회 성공:', data[0]);
+        
+        // 비밀번호 제외하고 반환
+        const { password: _, ...userData } = data[0];
+        return userData;
+      }
+      
+      return null;
+    } catch (err) {
+      console.error('직원 정보 조회 중 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 직원의 기본 근무 시간 목록 가져오기
+  getDefaultSchedules: async (employeeId: string) => {
+    try {
+      console.log('기본 근무 시간 조회 중...', employeeId);
+      
+      const { data, error } = await supabase
+        .from('default_schedules')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .order('day_of_week', { ascending: true })
+        .order('start_time', { ascending: true });
+      
+      if (error) {
+        console.error('기본 근무 시간 조회 오류:', error);
+        throw error;
+      }
+      
+      console.log('조회된 기본 근무 시간:', data);
+      return data;
+    } catch (err) {
+      console.error('getDefaultSchedules 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 모든 직원의 기본 근무 시간 목록 가져오기
+  getAllDefaultSchedules: async () => {
+    try {
+      console.log('모든 직원의 기본 근무 시간 조회 중...');
+      
+      const { data, error } = await supabase
+        .from('default_schedules')
+        .select('*, employees(id, name)')
+        .order('employee_id', { ascending: true })
+        .order('day_of_week', { ascending: true })
+        .order('start_time', { ascending: true });
+      
+      if (error) {
+        console.error('모든 기본 근무 시간 조회 오류:', error);
+        throw error;
+      }
+      
+      console.log('조회된 모든 기본 근무 시간:', data);
+      return data;
+    } catch (err) {
+      console.error('getAllDefaultSchedules 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 기본 근무 시간 추가
+  addDefaultSchedule: async (scheduleData: {
+    employeeId: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+  }) => {
+    try {
+      console.log('기본 근무 시간 추가 중...', scheduleData);
+      
+      // 유효성 검사
+      if (scheduleData.dayOfWeek < 0 || scheduleData.dayOfWeek > 6) {
+        throw new Error('요일은 0(일요일)부터 6(토요일)까지의 값이어야 합니다.');
+      }
+      
+      // 시간 형식 검사 (HH:MM)
+      const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      if (!timeRegex.test(scheduleData.startTime) || !timeRegex.test(scheduleData.endTime)) {
+        throw new Error('시간은 HH:MM 형식이어야 합니다.');
+      }
+      
+      const { data, error } = await supabase
+        .from('default_schedules')
+        .insert([{
+          employee_id: scheduleData.employeeId,
+          day_of_week: scheduleData.dayOfWeek,
+          start_time: scheduleData.startTime,
+          end_time: scheduleData.endTime
+        }])
+        .select();
+      
+      if (error) {
+        console.error('기본 근무 시간 추가 오류:', error);
+        throw error;
+      }
+      
+      console.log('기본 근무 시간 추가 성공:', data);
+      return data[0];
+    } catch (err) {
+      console.error('addDefaultSchedule 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 기본 근무 시간 업데이트
+  updateDefaultSchedule: async (
+    scheduleId: string,
+    scheduleData: {
+      dayOfWeek?: number;
+      startTime?: string;
+      endTime?: string;
+    }
+  ) => {
+    try {
+      console.log('기본 근무 시간 업데이트 중...', scheduleId, scheduleData);
+      
+      // 업데이트할 데이터 구성
+      const updateData: any = {};
+      
+      if (scheduleData.dayOfWeek !== undefined) {
+        if (scheduleData.dayOfWeek < 0 || scheduleData.dayOfWeek > 6) {
+          throw new Error('요일은 0(일요일)부터 6(토요일)까지의 값이어야 합니다.');
+        }
+        updateData.day_of_week = scheduleData.dayOfWeek;
+      }
+      
+      // 시간 형식 검사 (HH:MM)
+      const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      
+      if (scheduleData.startTime !== undefined) {
+        if (!timeRegex.test(scheduleData.startTime)) {
+          throw new Error('시작 시간은 HH:MM 형식이어야 합니다.');
+        }
+        updateData.start_time = scheduleData.startTime;
+      }
+      
+      if (scheduleData.endTime !== undefined) {
+        if (!timeRegex.test(scheduleData.endTime)) {
+          throw new Error('종료 시간은 HH:MM 형식이어야 합니다.');
+        }
+        updateData.end_time = scheduleData.endTime;
+      }
+      
+      const { data, error } = await supabase
+        .from('default_schedules')
+        .update(updateData)
+        .eq('id', scheduleId)
+        .select();
+      
+      if (error) {
+        console.error('기본 근무 시간 업데이트 오류:', error);
+        throw error;
+      }
+      
+      console.log('기본 근무 시간 업데이트 성공:', data);
+      return data[0];
+    } catch (err) {
+      console.error('updateDefaultSchedule 오류:', err);
+      throw err;
+    }
+  },
+  
+  // 기본 근무 시간 삭제
+  deleteDefaultSchedule: async (scheduleId: string) => {
+    try {
+      console.log('기본 근무 시간 삭제 중...', scheduleId);
+      
+      const { error } = await supabase
+        .from('default_schedules')
+        .delete()
+        .eq('id', scheduleId);
+      
+      if (error) {
+        console.error('기본 근무 시간 삭제 오류:', error);
+        throw error;
+      }
+      
+      console.log('기본 근무 시간 삭제 성공');
+      return true;
+    } catch (err) {
+      console.error('deleteDefaultSchedule 오류:', err);
       throw err;
     }
   }
