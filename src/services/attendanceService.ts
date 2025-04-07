@@ -596,44 +596,37 @@ export const attendanceService = {
   getAllAttendancesByPeriod: async (
     startDate: string,
     endDate: string
-  ): Promise<AttendanceRecord[]> => {
+  ): Promise<any[]> => {
     try {
-      console.log('기간별 모든 근무 기록 조회 중...', startDate, endDate);
+      console.log(`${startDate}부터 ${endDate}까지의 모든 근무 기록 조회 중...`);
       
-      // attendances 테이블에서 조회
       const { data, error } = await supabase
         .from('attendances')
-        .select('*, employees(id, name, work_time)')
+        .select('*, employees(id, name)')
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
       
       if (error) {
-        console.error('기간별 근무 기록 조회 오류:', error);
+        console.error('근무 기록 조회 오류:', error);
         throw error;
       }
       
-      console.log('조회된 기간별 근무 기록:', data);
+      console.log('조회된 모든 근무 기록:', data);
       
-      // 데이터 변환 - 업데이트된 AttendanceRecord 타입 활용
+      // 데이터 변환
       const records = data.map(record => ({
         id: record.id,
         employee_id: record.employee_id,
-        employeeId: record.employee_id,
+        employee_name: record.employees?.name || '알 수 없음',
         date: record.date,
         start_time: record.start_time,
         end_time: record.end_time,
-        startDateTime: `${record.date}T${record.start_time}`,
-        endDateTime: `${record.date}T${record.end_time}`,
         total_hours: record.total_hours,
-        totalHours: record.total_hours,
-        employee_name: record.employees?.name || '알 수 없음',
-        employeeName: record.employees?.name || '알 수 없음',
-        work_time: record.employees?.work_time || null,
-        notes: record.notes || ''
+        notes: record.notes || '',
+        status: record.status || 'pending'
       }));
       
-      console.log('변환된 기간별 근무 기록:', records);
       return records;
     } catch (err) {
       console.error('getAllAttendancesByPeriod 오류:', err);
@@ -645,68 +638,61 @@ export const attendanceService = {
   getUserWorkStats: async (
     startDate: string,
     endDate: string
-  ): Promise<Array<{
-    employee_id: string,
-    employee_name: string,
-    work_time: string | null,
-    work_days: number,
-    total_hours: number,
-    avg_hours_per_day: number
-  }>> => {
+  ): Promise<any[]> => {
     try {
-      console.log('사용자별 근무 통계 조회 중...', startDate, endDate);
+      console.log(`${startDate}부터 ${endDate}까지의 사용자별 근무 통계 조회 중...`);
       
-      // 모든 직원 정보 가져오기 (work_time 필드 포함)
-      const { data: employees, error: empError } = await supabase
+      // 모든 직원 조회
+      const { data: employees, error: employeeError } = await supabase
         .from('employees')
-        .select('id, name, work_time');
+        .select('id, name, role')
+        .eq('role', 'employee');
       
-      if (empError) {
-        console.error('직원 목록 조회 오류:', empError);
-        throw empError;
+      if (employeeError) {
+        console.error('직원 조회 오류:', employeeError);
+        throw employeeError;
       }
       
-      // 근무 기록 가져오기
-      const { data: records, error } = await supabase
+      // 모든 근무 기록 조회
+      const { data: attendances, error: attendanceError } = await supabase
         .from('attendances')
         .select('*')
         .gte('date', startDate)
         .lte('date', endDate);
       
-      if (error) {
-        console.error('근무 기록 조회 오류:', error);
-        throw error;
+      if (attendanceError) {
+        console.error('근무 기록 조회 오류:', attendanceError);
+        throw attendanceError;
       }
       
-      console.log('조회된 직원 목록:', employees);
-      console.log('조회된 근무 기록:', records);
-      
-      // 사용자별 통계 계산
-      const stats = employees.map(emp => {
-        // 해당 직원의 근무 기록 필터링
-        const empRecords = records.filter(r => r.employee_id === emp.id);
+      // 직원별 통계 계산
+      const stats = employees.map(employee => {
+        const employeeAttendances = attendances.filter(a => a.employee_id === employee.id);
         
-        // 총 근무 일수 (중복 날짜 제거)
-        const workDays = new Set(empRecords.map(r => r.date)).size;
-        
-        // 총 근무 시간
-        const totalHours = empRecords.reduce((sum, r) => sum + (parseFloat(r.total_hours) || 0), 0);
-        
-        // 일평균 근무 시간
-        const avgHoursPerDay = workDays > 0 ? totalHours / workDays : 0;
+        // 총 근무 시간 및 일수 계산
+        const totalHours = employeeAttendances.reduce((sum, a) => sum + parseFloat(a.total_hours || 0), 0);
+        const workDays = new Set(employeeAttendances.map(a => a.date)).size;
         
         return {
-          employee_id: emp.id,                             // AdminPage.tsx에서 사용하는 필드명으로 변경
-          employee_name: emp.name || emp.id,               // AdminPage.tsx에서 사용하는 필드명으로 변경
-          work_time: emp.work_time || null,                // work_time 필드 추가
-          work_days: workDays,                             // AdminPage.tsx에서 사용하는 필드명으로 변경
-          total_hours: parseFloat(totalHours.toFixed(1)),  // AdminPage.tsx에서 사용하는 필드명으로 변경
-          avg_hours_per_day: parseFloat(avgHoursPerDay.toFixed(1))  // 필드명 변경
+          employee_id: employee.id,
+          employee_name: employee.name,
+          total_hours: totalHours.toFixed(1),
+          work_days: workDays
         };
       });
       
-      console.log('계산된 사용자별 통계:', stats);
-      return stats;
+      console.log('계산된 사용자별 근무 통계:', stats);
+      
+      // 통계에 근무타임 정보 추가
+      const enrichedStats = stats.map((stat: any) => {
+        const employee = employees?.find((emp: any) => emp.id === stat.employee_id);
+        return {
+          ...stat,
+          employee_name: employee?.name || '(이름 없음)'
+        };
+      });
+      
+      return enrichedStats;
     } catch (err) {
       console.error('getUserWorkStats 오류:', err);
       throw err;
@@ -727,9 +713,8 @@ export const attendanceService = {
         .from('employees')
         .select('id')
         .eq('id', adminData.id)
-        .single();
+        .maybeSingle();
       
-      // 에러가 있지만 존재하지 않는 사용자라면 계속 진행
       if (checkError && checkError.code !== 'PGRST116') {
         console.error('사용자 확인 중 오류:', checkError);
         throw checkError;
@@ -740,14 +725,15 @@ export const attendanceService = {
         throw new Error('이미 존재하는 ID입니다.');
       }
       
-      // 관리자 계정 생성
+      // 관리자 계정 생성 (직접 employees 테이블에 삽입)
       const { data, error } = await supabase
         .from('employees')
         .insert([{
           id: adminData.id,
           name: adminData.name || `관리자_${adminData.id}`,
-          password: adminData.password,
-          role: 'admin'
+          password: adminData.password,  // 실제 환경에서는 암호화 필요
+          role: 'admin',
+          email: `${adminData.id}@example.com`  // 더미 이메일
         }])
         .select()
         .single();
@@ -782,7 +768,7 @@ export const attendanceService = {
         .from('employees')
         .select('id')
         .eq('id', userData.id)
-        .single();
+        .maybeSingle();
       
       // 에러가 있지만 존재하지 않는 사용자라면 계속 진행
       if (checkError && checkError.code !== 'PGRST116') {
@@ -801,8 +787,9 @@ export const attendanceService = {
         .insert([{
           id: userData.id,
           name: userData.name || userData.id,
-          password: userData.password,
-          role: 'employee'  // 기본값은 일반 직원
+          password: userData.password,  // 실제 환경에서는 암호화 필요
+          role: 'employee',  // 기본값은 일반 직원
+          email: `${userData.id}@example.com`  // 더미 이메일
         }])
         .select()
         .single();

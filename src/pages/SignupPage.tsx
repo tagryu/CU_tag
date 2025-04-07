@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Typography, TextField, Button, Box, Container, Paper, Alert, FormControlLabel, Checkbox } from '@mui/material';
-import { Link, useNavigate } from 'react-router-dom';
+import { Container, Typography, TextField, Button, Box, Alert, Link, Paper, FormControlLabel, Checkbox } from '@mui/material';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { attendanceService } from '../services/attendanceService';
-import { useAuth } from '../contexts/AuthContext';
 
 const SignupPage = () => {
   const [id, setId] = useState('');
@@ -12,22 +11,26 @@ const SignupPage = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  
   const navigate = useNavigate();
-  const auth = useAuth();
-
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setLoading(true);
 
     // 기본 검증
     if (!id || !password || !confirmPassword) {
       setError('모든 필드를 입력해주세요.');
+      setLoading(false);
       return;
     }
 
     // 비밀번호 일치 확인
     if (password !== confirmPassword) {
       setError('비밀번호가 일치하지 않습니다.');
+      setLoading(false);
       return;
     }
 
@@ -39,16 +42,15 @@ const SignupPage = () => {
       };
       
       // 일반 사용자 또는 관리자 계정 생성
-      let user;
       if (isAdmin) {
-        user = await attendanceService.createAdminAccount(userData);
+        await attendanceService.createAdminAccount(userData);
       } else {
         const { data, error: regError } = await attendanceService.registerEmployee(userData);
         if (regError) throw regError;
-        user = data;
       }
       
-      setSuccess('계정이 성공적으로 생성되었습니다.');
+      setSuccess('계정이 성공적으로 생성되었습니다. 로그인 페이지로 이동합니다.');
+      setLoading(false);
       
       // 3초 후 로그인 페이지로 이동
       setTimeout(() => {
@@ -57,6 +59,7 @@ const SignupPage = () => {
     } catch (err: any) {
       console.error('회원가입 오류:', err);
       setError(err.message || '계정 생성 중 오류가 발생했습니다.');
+      setLoading(false);
     }
   };
 
@@ -92,6 +95,7 @@ const SignupPage = () => {
               autoFocus
               value={id}
               onChange={(e) => setId(e.target.value)}
+              disabled={loading}
             />
             
             <TextField
@@ -103,6 +107,7 @@ const SignupPage = () => {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              disabled={loading}
             />
             
             <TextField
@@ -113,9 +118,10 @@ const SignupPage = () => {
               label="비밀번호"
               type="password"
               id="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
             />
             
             <TextField
@@ -126,16 +132,18 @@ const SignupPage = () => {
               label="비밀번호 확인"
               type="password"
               id="confirmPassword"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={loading}
             />
             
             <FormControlLabel
               control={
-                <Checkbox
-                  checked={isAdmin}
+                <Checkbox 
+                  checked={isAdmin} 
                   onChange={(e) => setIsAdmin(e.target.checked)}
-                  color="primary"
+                  disabled={loading}
                 />
               }
               label="관리자 계정으로 생성"
@@ -146,16 +154,18 @@ const SignupPage = () => {
               fullWidth
               variant="contained"
               sx={{ mt: 3, mb: 2 }}
+              disabled={loading}
             >
-              가입하기
+              {loading ? '처리 중...' : '회원가입'}
             </Button>
             
-            <Box sx={{ textAlign: 'center', mt: 2 }}>
-              <Link to="/login" style={{ textDecoration: 'none' }}>
-                <Typography variant="body2" color="primary">
-                  이미 계정이 있으신가요? 로그인하기
-                </Typography>
-              </Link>
+            <Box sx={{ mt: 2, textAlign: 'center' }}>
+              <Typography variant="body2">
+                이미 계정이 있으신가요?{' '}
+                <Link component={RouterLink} to="/login" variant="body2">
+                  로그인하기
+                </Link>
+              </Typography>
             </Box>
           </Box>
         </Paper>

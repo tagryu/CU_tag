@@ -131,8 +131,7 @@ const AdminPage: React.FC = () => {
     id: '',
     name: '',
     password: '',
-    role: 'employee',
-    workTime: ''  // 근무타임 필드 추가
+    role: 'employee'
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
@@ -200,8 +199,7 @@ const AdminPage: React.FC = () => {
         const employee = employees?.find((emp: any) => emp.id === record.employee_id);
         return {
           ...record,
-          employee_name: employee?.name || '(이름 없음)',
-          work_time: employee?.work_time || ''
+          employee_name: employee?.name || '(이름 없음)'
         };
       });
       
@@ -242,13 +240,12 @@ const AdminPage: React.FC = () => {
       const { supabase } = await import('../services/supabase');
       const { data: employees } = await supabase.from('employees').select('*');
       
-      // 통계에 근무타임 정보 추가
+      // 통계에 직원 정보 추가
       const enrichedStats = stats.map((stat: any) => {
         const employee = employees?.find((emp: any) => emp.id === stat.employee_id);
         return {
           ...stat,
-          employee_name: employee?.name || '(이름 없음)',
-          work_time: employee?.work_time || ''
+          employee_name: employee?.name || '(이름 없음)'
         };
       });
       
@@ -464,8 +461,7 @@ const AdminPage: React.FC = () => {
       id: '',
       name: '',
       password: '',
-      role: 'employee',
-      workTime: ''  // 근무타임 필드 추가
+      role: 'employee'
     });
     setUserDialogOpen(true);
   };
@@ -477,8 +473,7 @@ const AdminPage: React.FC = () => {
       id: user.id,
       name: user.name || '',
       password: '',
-      role: user.role || 'employee',
-      workTime: user.work_time || ''  // 근무타임 필드 추가
+      role: user.role || 'employee'
     });
     setUserDialogOpen(true);
   };
@@ -559,8 +554,7 @@ const AdminPage: React.FC = () => {
         // 기존 사용자 수정
         const updateData: any = {
           name: newUser.name,
-          role: newUser.role,
-          work_time: newUser.workTime  // 근무타임 필드 추가
+          role: newUser.role
         };
         
         // 비밀번호가 입력된 경우에만 업데이트
@@ -584,8 +578,7 @@ const AdminPage: React.FC = () => {
             id: newUser.id,
             name: newUser.name,
             password: newUser.password,
-            role: newUser.role,
-            work_time: newUser.workTime  // 근무타임 필드 추가
+            role: newUser.role
           }]);
         
         if (error) throw error;
@@ -894,12 +887,11 @@ const AdminPage: React.FC = () => {
                         const endTime = record.end_time || record.endDateTime?.split('T')[1] || '';
                         const totalHours = record.total_hours || record.totalHours || 0;
                         const name = record.employee_name || record.employeeName || '이름 없음';
-                        const workTime = record.work_time || '';
                         
                         return (
                           <TableRow key={record.id} hover>
                             <TableCell>{dayjs(date).format('YYYY-MM-DD')}</TableCell>
-                            <TableCell>{name}{workTime ? ` (${workTime})` : ''}</TableCell>
+                            <TableCell>{name}</TableCell>
                             <TableCell>{dayjs(`${date}T${startTime}`).format('HH:mm')}</TableCell>
                             <TableCell>{dayjs(`${date}T${endTime}`).format('HH:mm')}</TableCell>
                             <TableCell>{totalHours}시간</TableCell>
@@ -1076,7 +1068,7 @@ const AdminPage: React.FC = () => {
                             fontWeight: 'bold'
                           }}
                         >
-                          {employee.employee_name || employee.employeeName}{employee.work_time ? ` (${employee.work_time})` : ''}
+                          {employee.employee_name || employee.employeeName}
                         </TableCell>
                         {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => (
                           <TableCell 
@@ -1156,11 +1148,10 @@ const AdminPage: React.FC = () => {
                       const name = stat.employee_name || stat.employeeName || '이름 없음';
                       const workDays = stat.work_days || stat.workDays || 0;
                       const totalHours = stat.total_hours || stat.totalHours || 0;
-                      const workTime = stat.work_time || '';
                       
                       return (
                         <TableRow key={stat.employee_id || stat.employeeId} hover>
-                          <TableCell>{name}{workTime ? ` (${workTime})` : ''}</TableCell>
+                          <TableCell>{name}</TableCell>
                           <TableCell align="right">{workDays}일</TableCell>
                           <TableCell align="right">{parseFloat(totalHours.toString()).toFixed(1)}시간</TableCell>
                           <TableCell align="right">
@@ -1415,15 +1406,6 @@ const AdminPage: React.FC = () => {
               value={newUser.password}
               onChange={handleUserInputChange}
               required={!selectedUser} // 신규 등록 시에만 필수
-            />
-            <TextField
-              name="workTime"
-              label="근무타임"
-              fullWidth
-              value={newUser.workTime}
-              onChange={handleUserInputChange}
-              placeholder="예: 오전 9시-오후 6시, 주말 제외"
-              helperText="선택 사항입니다. 자유롭게 입력하세요."
             />
             <FormControl fullWidth>
               <InputLabel id="role-label">역할</InputLabel>
