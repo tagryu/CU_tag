@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Container, Typography, TextField, Button, Box, Alert, Link, Paper, FormControlLabel, Checkbox } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { attendanceService } from '../services/attendanceService';
+import { supabase } from '../services/supabase';
 
 const SignupPage = () => {
   const [id, setId] = useState('');
@@ -17,49 +17,43 @@ const SignupPage = () => {
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    // 기본 검증
-    if (!id || !password || !confirmPassword) {
-      setError('모든 필드를 입력해주세요.');
-      setLoading(false);
-      return;
-    }
-
-    // 비밀번호 일치 확인
-    if (password !== confirmPassword) {
-      setError('비밀번호가 일치하지 않습니다.');
-      setLoading(false);
-      return;
-    }
-
+    setError('');
+    
     try {
-      const userData = { 
-        id, 
-        name: name || id, 
-        password
-      };
-      
-      // 일반 사용자 또는 관리자 계정 생성
-      if (isAdmin) {
-        await attendanceService.createAdminAccount(userData);
-      } else {
-        const { data, error: regError } = await attendanceService.registerEmployee(userData);
-        if (regError) throw regError;
+      // 기본 유효성 검사
+      if (!id || !password || !name) {
+        setError('모든 필드를 입력해주세요.');
+        return;
       }
       
-      setSuccess('계정이 성공적으로 생성되었습니다. 로그인 페이지로 이동합니다.');
-      setLoading(false);
+      // 직원 등록
+      const { data, error } = await supabase
+        .from('employees')
+        .insert([{
+          id,
+          name,
+          password,
+          role: 'employee',
+          email: `${id}@example.com`
+        }])
+        .select()
+        .single();
       
-      // 3초 후 로그인 페이지로 이동
-      setTimeout(() => {
-        navigate('/login');
-      }, 3000);
+      if (error) {
+        console.error('회원가입 오류:', error);
+        setError(error.message || '회원가입 중 오류가 발생했습니다.');
+        return;
+      }
+      
+      console.log('회원가입 성공:', data);
+      
+      // 로그인 페이지로 이동
+      navigate('/login', { 
+        state: { message: '회원가입이 완료되었습니다. 로그인해주세요.' } 
+      });
     } catch (err: any) {
-      console.error('회원가입 오류:', err);
-      setError(err.message || '계정 생성 중 오류가 발생했습니다.');
-      setLoading(false);
+      console.error('회원가입 처리 중 오류:', err);
+      setError(err?.message || '회원가입 처리 중 오류가 발생했습니다.');
     }
   };
 

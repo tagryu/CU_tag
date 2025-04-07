@@ -61,26 +61,43 @@ const Dashboard: React.FC = () => {
   return (
     <>
       <AppBar position="static" color="default" elevation={0} sx={{ borderBottom: '1px solid #e0e0e0', mb: 3 }}>
-        <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
-          <Typography variant="h6" color="inherit" noWrap>
+        <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', minHeight: { xs: '48px' }, py: { xs: 0.5 } }}>
+          <Typography variant="subtitle1" color="inherit" noWrap>
             편의점 근태 관리 시스템
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Typography variant="body1" sx={{ mr: 2 }}>
-              {user?.name || user?.id || '사용자'}님 환영합니다
+            <Typography variant="body2" sx={{ mr: 1.5 }}>
+              {user?.name || user?.id || '사용자'}님
             </Typography>
             {isAdmin && (
               <Button 
                 color="primary" 
-                variant="contained" 
+                variant="outlined" 
                 size="small" 
                 onClick={() => navigate('/admin')}
-                sx={{ mr: 1 }}
+                sx={{ 
+                  mr: 0.5, 
+                  py: 0.5, 
+                  px: 1, 
+                  fontSize: '0.75rem',
+                  minWidth: 'auto'
+                }}
               >
-                관리자 페이지
+                관리자
               </Button>
             )}
-            <Button color="primary" variant="outlined" size="small" onClick={handleLogout}>
+            <Button 
+              color="primary" 
+              variant="outlined" 
+              size="small" 
+              onClick={handleLogout}
+              sx={{ 
+                py: 0.5, 
+                px: 1, 
+                fontSize: '0.75rem',
+                minWidth: 'auto'
+              }}
+            >
               로그아웃
             </Button>
           </Box>

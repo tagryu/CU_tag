@@ -29,7 +29,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { DateTimePicker, DatePicker } from '@mui/x-date-pickers';
 import dayjs from 'dayjs';
 import { attendanceService } from '../services/attendanceService';
 import { AttendanceRecord, DefaultSchedule, DAY_OF_WEEK_NAMES } from '../types';
@@ -74,9 +74,12 @@ const calculateHours = (startDateTime: string, endDateTime: string): string => {
   
   const start = dayjs(startDateTime);
   const end = dayjs(endDateTime);
-  const hours = end.diff(start, 'hour', true);
+  const diffHours = end.diff(start, 'hour', true);
   
-  return hours > 0 ? hours.toFixed(1) : '0';
+  // 음수인 경우 24시간을 더함 (오버나이트 근무)
+  const hours = diffHours < 0 ? diffHours + 24 : diffHours;
+  
+  return hours.toFixed(1);
 };
 
 const TimeKeeper = () => {
@@ -172,60 +175,20 @@ const TimeKeeper = () => {
       
       console.log('조회 기간:', todayStart, '~', todayEnd);
       
-      // 두 테이블 모두에서 근무 기록 조회 시도
-      let records: AttendanceRecord[] = [];
+      // attendances 테이블에서만 근무 기록 조회
+      const records = await attendanceService.getAttendanceByEmployee(
+        employee,
+        todayStart,
+        todayEnd
+      );
       
-      try {
-        // 먼저 attendances 테이블에서 조회
-        const attendanceRecords = await attendanceService.getAttendanceByEmployee(
-          employee,
-          todayStart,
-          todayEnd
-        );
-        
-        console.log('attendances 테이블에서 조회된 기록:', attendanceRecords);
-        records = [...attendanceRecords];
-      } catch (err) {
-        console.error('attendances 테이블 조회 중 오류:', err);
-      }
-      
-      try {
-        // attendance_records 테이블에서도 추가 조회
-        const { supabase } = await import('../services/supabase');
-        
-        const { data, error } = await supabase
-          .from('attendance_records')
-          .select('*')
-          .eq('employee_id', employee)
-          .gte('start_date_time', todayStart)
-          .lte('end_date_time', todayEnd);
-        
-        if (error) {
-          console.error('attendance_records 테이블 조회 중 오류:', error);
-        } else if (data && data.length > 0) {
-          console.log('attendance_records 테이블에서 조회된 기록:', data);
-          
-          // 형식 변환하여 추가
-          const convertedRecords: AttendanceRecord[] = data.map(record => ({
-            id: record.id,
-            employeeId: record.employee_id,
-            startDateTime: record.start_date_time,
-            endDateTime: record.end_date_time,
-            notes: record.notes || ''
-          }));
-          
-          records = [...records, ...convertedRecords];
-        }
-      } catch (err) {
-        console.error('attendance_records 테이블 조회 중 오류:', err);
-      }
+      console.log('조회된 근무 기록:', records);
       
       // 날짜 순으로 정렬
       records.sort((a, b) => 
         new Date(b.startDateTime || '').getTime() - new Date(a.startDateTime || '').getTime()
       );
       
-      console.log('최종 로드된 출석 기록 (합친 결과):', records);
       setRecentAttendances(records);
     } catch (err) {
       console.error('오늘 출석 기록 로드 중 오류:', err);
@@ -540,80 +503,25 @@ const TimeKeeper = () => {
   return (
     <Container maxWidth="md" sx={{ py: { xs: 2, sm: 3 } }}>
       {/* 근무 시간 등록 폼 */}
-      <Card 
-        elevation={0}
-        sx={{
-          mb: 3,
-          borderRadius: 2,
-          overflow: 'visible',
-          backgroundColor: 'white',
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          p: { xs: 2, sm: 3 }, 
+          border: '1px solid rgba(0, 0, 0, 0.08)',
+          borderRadius: 2
         }}
       >
-        <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-          {/* 상단 제목 영역 */}
-          <Box sx={{ 
-            mb: 2.5,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start'
-          }}>
-            <Typography 
-              variant="h5" 
-              fontWeight="600"
-              color="primary"
-              sx={{ mb: 0.5 }}
-            >
-              근무 시간 등록
-            </Typography>
-            <Typography 
-              variant="body2" 
-              color="text.secondary"
-              sx={{ 
-                fontSize: { xs: '0.875rem', sm: '0.9375rem' },
-              }}
-            >
-              {todayDate}
-            </Typography>
-          </Box>
-          
-          {/* 알림 메시지 */}
-          {error && (
-            <Alert 
-              severity="error" 
-              sx={{ 
-                mb: 2.5, 
-                borderRadius: 2,
-                fontSize: '0.875rem',
-                '& .MuiAlert-icon': {
-                  color: 'error.main',
-                  opacity: 0.9,
-                },
-                boxShadow: 'none',
-                border: '1px solid',
-                borderColor: 'error.light',
-              }}
-            >
-              {error}
-            </Alert>
-          )}
-          
-          {success && (
-            <Alert 
-              severity="success" 
-              sx={{ 
-                mb: 2.5, 
-                borderRadius: 2,
-                fontSize: '0.875rem',
-                '& .MuiAlert-icon': {
-                  opacity: 0.9,
-                },
-                boxShadow: 'none',
-              }}
-            >
-              {success}
-            </Alert>
-          )}
-          
+        <Typography 
+          variant="h6" 
+          sx={{ 
+            mb: 2, 
+            fontSize: { xs: '1rem', sm: '1.25rem' } 
+          }}
+        >
+          근무 시간 등록
+        </Typography>
+        
+        <Stack spacing={2}>
           {/* 직원 선택 (관리자만) */}
           {isAdmin && (
             <FormControl 
@@ -639,165 +547,170 @@ const TimeKeeper = () => {
               >
                 {employees.map((emp) => (
                   <MenuItem key={emp.id} value={emp.id}>
-                    {emp.name || emp.id}
+                    {emp.name}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
           )}
           
-          {/* 시간 선택 영역 */}
-          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
-            <Stack 
-              spacing={2.5}
+          {/* 시작 시간 */}
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight="medium">시작 시간</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                <DatePicker
+                  label="날짜"
+                  value={startDateTime}
+                  onChange={(newValue) => {
+                    if (newValue && startDateTime) {
+                      // 날짜만 변경하고 시간은 유지
+                      const updatedDateTime = newValue
+                        .hour(startDateTime.hour())
+                        .minute(startDateTime.minute());
+                      setStartDateTime(updatedDateTime);
+                    } else {
+                      setStartDateTime(newValue);
+                    }
+                  }}
+                  format="YYYY-MM-DD"
+                  sx={{ flex: 1 }}
+                />
+              </LocalizationProvider>
+              
+              <TextField
+                label="시간"
+                value={startDateTime ? startDateTime.format('HH:mm') : ''}
+                onChange={(e) => {
+                  const timeValue = e.target.value;
+                  // 시간 형식 검증 (HH:MM)
+                  if (timeValue && startDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
+                    const [hours, minutes] = timeValue.split(':').map(Number);
+                    const newDateTime = startDateTime
+                      .hour(hours)
+                      .minute(minutes);
+                    setStartDateTime(newDateTime);
+                  }
+                }}
+                placeholder="09:00"
+                inputProps={{ 
+                  maxLength: 5,
+                  inputMode: 'numeric', 
+                  pattern: '[0-9]{1,2}:[0-9]{2}'
+                }}
+                sx={{ width: '130px' }}
+              />
+            </Box>
+          </Stack>
+          
+          {/* 종료 시간 */}
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight="medium">종료 시간</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                <DatePicker
+                  label="날짜"
+                  value={endDateTime}
+                  onChange={(newValue) => {
+                    if (newValue && endDateTime) {
+                      // 날짜만 변경하고 시간은 유지
+                      const updatedDateTime = newValue
+                        .hour(endDateTime.hour())
+                        .minute(endDateTime.minute());
+                      setEndDateTime(updatedDateTime);
+                    } else {
+                      setEndDateTime(newValue);
+                    }
+                  }}
+                  format="YYYY-MM-DD"
+                  sx={{ flex: 1 }}
+                />
+              </LocalizationProvider>
+              
+              <TextField
+                label="시간"
+                value={endDateTime ? endDateTime.format('HH:mm') : ''}
+                onChange={(e) => {
+                  const timeValue = e.target.value;
+                  // 시간 형식 검증 (HH:MM)
+                  if (timeValue && endDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
+                    const [hours, minutes] = timeValue.split(':').map(Number);
+                    const newDateTime = endDateTime
+                      .hour(hours)
+                      .minute(minutes);
+                    setEndDateTime(newDateTime);
+                  }
+                }}
+                placeholder="18:00"
+                inputProps={{ 
+                  maxLength: 5,
+                  inputMode: 'numeric', 
+                  pattern: '[0-9]{1,2}:[0-9]{2}'
+                }}
+                sx={{ width: '130px' }}
+              />
+            </Box>
+          </Stack>
+          
+          {/* 총 근무 시간 표시 */}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 1.5,
+              mt: 1,
+              backgroundColor: 'rgba(0, 102, 255, 0.1)',
+              borderRadius: 1,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            <Typography 
+              variant="body1" 
               sx={{ 
-                mb: 2.5,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 1.5,
-                  backgroundColor: 'white',
-                }
+                fontWeight: 'medium',
+                fontSize: { xs: '0.875rem', sm: '1rem' } 
               }}
             >
-              {/* 시작 시간 */}
-              <Box sx={{ 
-                display: 'flex',
-                flexDirection: 'column' 
-              }}>
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ 
-                    mb: 0.5, 
-                    fontWeight: 'medium',
-                    color: 'text.primary',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  시작 시간
-                </Typography>
-                <DateTimePicker
-                  value={startDateTime}
-                  onChange={(newValue) => setStartDateTime(newValue)}
-                  ampm={false}
-                  sx={{
-                    '& .MuiInputBase-root': {
-                      fontSize: '0.9375rem'
-                    }
-                  }}
-                />
-              </Box>
-              
-              {/* 종료 시간 */}
-              <Box sx={{ 
-                display: 'flex',
-                flexDirection: 'column' 
-              }}>
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ 
-                    mb: 0.5, 
-                    fontWeight: 'medium',
-                    color: 'text.primary',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  종료 시간
-                </Typography>
-                <DateTimePicker
-                  value={endDateTime}
-                  onChange={(newValue) => setEndDateTime(newValue)}
-                  ampm={false}
-                  sx={{
-                    '& .MuiInputBase-root': {
-                      fontSize: '0.9375rem'
-                    }
-                  }}
-                />
-              </Box>
-              
-              {/* 총 근무 시간 표시 */}
-              {startDateTime && endDateTime && (
-                <Box 
-                  sx={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    backgroundColor: 'rgba(0, 102, 255, 0.05)',
-                  }}
-                >
-                  <Typography variant="body2" color="text.secondary">
-                    총 근무 시간
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium" color="primary.main">
-                    {calculateHours(
-                      startDateTime.format('YYYY-MM-DDTHH:mm'),
-                      endDateTime.format('YYYY-MM-DDTHH:mm')
-                    )}시간
-                  </Typography>
-                </Box>
-              )}
-            </Stack>
-          </LocalizationProvider>
+              {startDateTime && endDateTime
+                ? `총 근무 시간: ${calculateHours(startDateTime.toISOString(), endDateTime.toISOString())}시간`
+                : '시작 및 종료 시간을 선택하세요'}
+            </Typography>
+          </Paper>
           
-          {/* 비고 입력 */}
-          <TextField
-            fullWidth
-            label="비고"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            variant="outlined"
-            multiline
-            rows={2}
-            sx={{ 
-              mb: 2.5,
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 1.5,
-                backgroundColor: 'white',
-                fontSize: '0.9375rem',
-              }
-            }}
-          />
-          
-          {/* 버튼 영역 */}
-          <Box sx={{ 
-            display: 'flex', 
-            flexDirection: { xs: 'column', sm: 'row' },
-            gap: 1.5
-          }}>
+          {/* 액션 버튼 */}
+          <Stack spacing={1} direction={{ xs: 'column', sm: 'row' }}>
             <Button
               variant="outlined"
               color="primary"
               onClick={handleOpenDefaultScheduleDialog}
+              startIcon={<AccessTimeIcon />}
               fullWidth
-              sx={{ 
-                py: 1.25, 
-                borderRadius: 1.5,
-              }}
+              size="small"
+              sx={{ flex: { xs: '1', sm: 'initial' } }}
             >
               기본 근무시간 사용
             </Button>
-            
             <Button
               variant="contained"
               color="primary"
               onClick={handleSubmit}
+              disabled={!startDateTime || !endDateTime}
               fullWidth
-              sx={{ 
-                py: 1.25, 
-                borderRadius: 1.5,
-              }}
+              size="small"
+              sx={{ flex: { xs: '1', sm: 'initial' } }}
             >
-              근무 시간 등록
+              등록하기
             </Button>
-          </Box>
-        </CardContent>
-      </Card>
+          </Stack>
+        </Stack>
+      </Paper>
       
-      {/* 최근 근무 기록 목록 */}
+      {/* 최근 근무 기록 */}
       <Card 
-        elevation={0}
-        sx={{
+        elevation={0} 
+        sx={{ 
+          mt: 3, 
           borderRadius: 2,
           overflow: 'hidden',
           backgroundColor: 'white',
@@ -805,7 +718,7 @@ const TimeKeeper = () => {
       >
         <CardContent sx={{ p: 0 }}>
           <Box sx={{ 
-            p: { xs: 2, sm: 3 },
+            p: { xs: 2, sm: 3 }, 
             borderBottom: '1px solid',
             borderColor: 'divider',
           }}>
@@ -843,24 +756,25 @@ const TimeKeeper = () => {
                 <ListItem 
                   key={attendance.id || index}
                   secondaryAction={
-                    <Box>
-                      <IconButton 
-                        edge="end" 
-                        size="small"
-                        onClick={() => handleEditClick(attendance)}
-                        sx={{ mr: 0.5 }}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton 
-                        edge="end" 
-                        size="small"
-                        onClick={() => handleDeleteClick(attendance.id || '')}
-                        color="error"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Box>
+                    isAdmin || attendance.employeeId === user?.id ? (
+                      <Stack direction="row" spacing={1}>
+                        <IconButton 
+                          edge="end" 
+                          size="small" 
+                          onClick={() => handleEditClick(attendance)}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton 
+                          edge="end" 
+                          size="small" 
+                          onClick={() => handleDeleteClick(attendance.id || '')}
+                          color="error" 
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Stack>
+                    ) : null
                   }
                   sx={{ display: 'block' }}
                 >
@@ -869,6 +783,8 @@ const TimeKeeper = () => {
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'baseline',
+                      width: '100%',
+                      pr: isAdmin || attendance.employeeId === user?.id ? 8 : 0
                     }}>
                       <Typography 
                         component="div" 
@@ -890,9 +806,18 @@ const TimeKeeper = () => {
                     <Typography 
                       variant="body2" 
                       color="text.secondary"
-                      sx={{ display: 'flex', alignItems: 'center' }}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
                     >
-                      <AccessTimeIcon />
+                      <Box 
+                        component="span" 
+                        sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          mr: 0.5
+                        }}
+                      >
+                        <AccessTimeIcon />
+                      </Box>
                       {dayjs(attendance.startDateTime).format('HH:mm')} - {dayjs(attendance.endDateTime).format('HH:mm')}
                     </Typography>
                     
@@ -908,6 +833,16 @@ const TimeKeeper = () => {
                         }}
                       >
                         {attendance.notes}
+                      </Typography>
+                    )}
+                    
+                    {!isAdmin && attendance.employeeId !== user?.id && (
+                      <Typography 
+                        variant="caption" 
+                        color="text.secondary" 
+                        sx={{ fontStyle: 'italic', mt: 1 }}
+                      >
+                        수정은 관리자만 가능합니다
                       </Typography>
                     )}
                   </Box>
@@ -939,47 +874,121 @@ const TimeKeeper = () => {
           근무 기록 수정
         </DialogTitle>
         <DialogContent sx={{ p: 3, mt: 2 }}>
-          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
-            <Stack spacing={3}>
-              <DateTimePicker
-                label="시작 시간"
-                value={editStartDateTime}
-                onChange={(newValue) => setEditStartDateTime(newValue)}
-                ampm={false}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2
-                  }
-                }}
-              />
-              <DateTimePicker
-                label="종료 시간"
-                value={editEndDateTime}
-                onChange={(newValue) => setEditEndDateTime(newValue)}
-                ampm={false}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2
-                  }
-                }}
-              />
-              <TextField
-                multiline
-                rows={2}
-                fullWidth
-                label="비고"
-                placeholder="특이사항이 있으면 입력하세요"
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                variant="outlined"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2
-                  }
-                }}
-              />
+          <Stack spacing={3}>
+            {/* 시작 시간 */}
+            <Stack spacing={1}>
+              <Typography variant="body2" fontWeight="medium">시작 시간</Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                  <DatePicker
+                    label="날짜"
+                    value={editStartDateTime}
+                    onChange={(newValue) => {
+                      if (newValue && editStartDateTime) {
+                        // 날짜만 변경하고 시간은 유지
+                        const updatedDateTime = newValue
+                          .hour(editStartDateTime.hour())
+                          .minute(editStartDateTime.minute());
+                        setEditStartDateTime(updatedDateTime);
+                      } else {
+                        setEditStartDateTime(newValue);
+                      }
+                    }}
+                    format="YYYY-MM-DD"
+                    sx={{ flex: 1 }}
+                  />
+                </LocalizationProvider>
+                
+                <TextField
+                  label="시간"
+                  value={editStartDateTime ? editStartDateTime.format('HH:mm') : ''}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    // 시간 형식 검증 (HH:MM)
+                    if (timeValue && editStartDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDateTime = editStartDateTime
+                        .hour(hours)
+                        .minute(minutes);
+                      setEditStartDateTime(newDateTime);
+                    }
+                  }}
+                  placeholder="09:00"
+                  inputProps={{ 
+                    maxLength: 5,
+                    inputMode: 'numeric', 
+                    pattern: '[0-9]{1,2}:[0-9]{2}'
+                  }}
+                  sx={{ width: '130px' }}
+                />
+              </Box>
             </Stack>
-          </LocalizationProvider>
+            
+            {/* 종료 시간 */}
+            <Stack spacing={1}>
+              <Typography variant="body2" fontWeight="medium">종료 시간</Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                  <DatePicker
+                    label="날짜"
+                    value={editEndDateTime}
+                    onChange={(newValue) => {
+                      if (newValue && editEndDateTime) {
+                        // 날짜만 변경하고 시간은 유지
+                        const updatedDateTime = newValue
+                          .hour(editEndDateTime.hour())
+                          .minute(editEndDateTime.minute());
+                        setEditEndDateTime(updatedDateTime);
+                      } else {
+                        setEditEndDateTime(newValue);
+                      }
+                    }}
+                    format="YYYY-MM-DD"
+                    sx={{ flex: 1 }}
+                  />
+                </LocalizationProvider>
+                
+                <TextField
+                  label="시간"
+                  value={editEndDateTime ? editEndDateTime.format('HH:mm') : ''}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    // 시간 형식 검증 (HH:MM)
+                    if (timeValue && editEndDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDateTime = editEndDateTime
+                        .hour(hours)
+                        .minute(minutes);
+                      setEditEndDateTime(newDateTime);
+                    }
+                  }}
+                  placeholder="18:00"
+                  inputProps={{ 
+                    maxLength: 5,
+                    inputMode: 'numeric', 
+                    pattern: '[0-9]{1,2}:[0-9]{2}'
+                  }}
+                  sx={{ width: '130px' }}
+                />
+              </Box>
+            </Stack>
+            
+            <TextField
+              multiline
+              rows={2}
+              fullWidth
+              label="비고"
+              placeholder="특이사항이 있으면 입력하세요"
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2
+                }
+              }}
+            />
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button 

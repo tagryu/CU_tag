@@ -35,13 +35,17 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Tooltip
+  Tooltip,
+  FormControlLabel,
+  Switch,
+  Stack
 } from '@mui/material';
 import { Grid } from '../components/GridFix';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { attendanceService } from '../services/attendanceService';
@@ -150,6 +154,10 @@ const AdminPage: React.FC = () => {
   // 월간 전체 근무 시간 및 날짜별 근무 시간 합계 계산
   const [dateWorkHours, setDateWorkHours] = useState<{ [key: string]: number }>({});
   const [totalMonthlyWorkHours, setTotalMonthlyWorkHours] = useState<number>(0);
+  
+  // 근무 기록 수정 관련 상태
+  const [editStartDateTime, setEditStartDateTime] = useState<dayjs.Dayjs | null>(null);
+  const [editEndDateTime, setEditEndDateTime] = useState<dayjs.Dayjs | null>(null);
   
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -311,28 +319,56 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  // 근무 기록 편집 버튼 클릭 핸들러
-  const handleEditClick = (record: any) => {
+  // 근무 기록 수정 버튼 클릭 핸들러
+  const handleOpenEditRecordDialog = (record: any) => {
     setSelectedRecord(record);
+    
+    // 시작 및 종료 시간 설정
+    const date = record.date;
+    const startTime = record.start_time;
+    const endTime = record.end_time;
+    
+    // 날짜와 시간을 결합하여 dayjs 객체 생성
+    const startDateTime = dayjs(`${date}T${startTime}`);
+    const endDateTime = dayjs(`${date}T${endTime}`);
+    
+    setEditStartDateTime(startDateTime);
+    setEditEndDateTime(endDateTime);
     setEditDialogOpen(true);
   };
 
-  // 근무 기록 편집 확인 핸들러
+  // 근무 기록 수정 저장 핸들러
   const handleEditConfirm = async () => {
     try {
-      if (!selectedRecord?.id) return;
+      if (!selectedRecord?.id || !editStartDateTime || !editEndDateTime) {
+        setError('편집할 정보가 없습니다.');
+        return;
+      }
       
-      // 근무 기록 업데이트 로직 구현
-      // ...
+      const startDateTimeStr = editStartDateTime.format('YYYY-MM-DDTHH:mm:00');
+      const endDateTimeStr = editEndDateTime.format('YYYY-MM-DDTHH:mm:00');
       
+      const updatedRecord = {
+        employeeId: selectedRecord.employee_id,
+        startDateTime: startDateTimeStr,
+        endDateTime: endDateTimeStr,
+        notes: selectedRecord.notes || ''
+      };
+      
+      console.log('수정할 근무 기록:', updatedRecord);
+      
+      await attendanceService.updateAttendance(selectedRecord.id, updatedRecord);
+      setSuccessMessage('근무 기록이 성공적으로 수정되었습니다.');
+      
+      // 다이얼로그 닫기 및 상태 초기화
       setEditDialogOpen(false);
       setSelectedRecord(null);
       
       // 근무 기록 새로고침
       loadAttendancesByPeriod();
     } catch (err: any) {
-      console.error('근무 기록 편집 오류:', err);
-      setError(err.message || '근무 기록 편집 중 오류가 발생했습니다.');
+      console.error('근무 기록 수정 오류:', err);
+      setError(err.message || '근무 기록 수정 중 오류가 발생했습니다.');
     }
   };
 
@@ -834,6 +870,35 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // 각 직원별로 실제 그 날짜에 근무한 시간만 계산하는 함수를 정의
+  const calculateEmployeeDailyHours = (employeeId: string, day: number) => {
+    let dayTotal = 0;
+    
+    allAttendances.forEach(record => {
+      if ((record.employee_id === employeeId || record.employeeId === employeeId) &&
+          dayjs(record.date || record.startDateTime?.split('T')[0]).date() === day) {
+        const hours = record.total_hours ? parseFloat(record.total_hours) : 
+                      parseFloat(calculateHours(record.start_time || record.startDateTime, 
+                                              record.end_time || record.endDateTime));
+        dayTotal += hours;
+      }
+    });
+    
+    return dayTotal;
+  };
+
+  // 직원의 월간 총 근무시간을 계산하는 함수
+  const calculateEmployeeMonthlyHours = (employeeId: string) => {
+    let totalHours = 0;
+    const daysInMonth = selectedMonth.daysInMonth();
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+      totalHours += calculateEmployeeDailyHours(employeeId, day);
+    }
+    
+    return totalHours;
+  };
+
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ 
@@ -871,25 +936,44 @@ const AdminPage: React.FC = () => {
 
       {/* 근무 기록 관리 탭 */}
       <TabPanel value={tabValue} index={0}>
-        <Box sx={{ mb: 2 }}>
-          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
-            <DatePicker
-              label="월 선택"
-              views={['year', 'month']}
-              value={selectedMonth}
-              onChange={handleMonthChange}
-              format="YYYY년 MM월"
-              sx={{ mb: 2 }}
-            />
-          </LocalizationProvider>
-          <Button
-            variant="outlined"
-            onClick={handleExportToExcel}
-            sx={{ ml: 2 }}
-            startIcon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M3 4v16a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H4a1 1 0 00-1 1zm5 2h8v2H8V6zm0 4h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>}
-          >
-            엑셀로 내보내기
-          </Button>
+        <Box sx={{ mb: 3 }}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>
+              기간 설정
+            </Typography>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={6} md={4}>
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                  <DatePicker
+                    label="월 선택"
+                    views={['year', 'month']}
+                    value={selectedMonth}
+                    onChange={handleMonthChange}
+                    format="YYYY년 MM월"
+                    slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                  />
+                </LocalizationProvider>
+              </Grid>
+              <Grid item xs={12} sm={6} md={8} sx={{ display: 'flex', gap: 2 }}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  onClick={loadAttendancesByPeriod}
+                >
+                  조회
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={handleExportToExcel}
+                  disabled={allAttendances.length === 0}
+                  startIcon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M3 4v16a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H4a1 1 0 00-1 1zm5 2h8v2H8V6zm0 4h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>}
+                >
+                  엑셀로 내보내기
+                </Button>
+              </Grid>
+            </Grid>
+          </Paper>
         </Box>
         
         {loading ? (
@@ -953,7 +1037,7 @@ const AdminPage: React.FC = () => {
                                 <TableCell align="right">
                                   <IconButton 
                                     size="small" 
-                                    onClick={() => handleEditClick(record)}
+                                    onClick={() => handleOpenEditRecordDialog(record)}
                                     color="primary"
                                   >
                                     <EditIcon />
@@ -995,36 +1079,35 @@ const AdminPage: React.FC = () => {
       <TabPanel value={tabValue} index={1}>
         <Box sx={{ mb: 3 }}>
           <Paper sx={{ p: 3 }}>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>
+              기간 설정
+            </Typography>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} sm={8} md={6}>
-                <Typography variant="subtitle1" sx={{ mb: 2 }}>
-                  기간 설정
-                </Typography>
+              <Grid item xs={12} sm={6} md={4}>
                 <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
-                  <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                    <DatePicker
-                      views={['year', 'month']}
-                      label="월 선택"
-                      value={selectedMonth}
-                      onChange={handleMonthChange}
-                      slotProps={{ textField: { size: 'small' } }}
-                    />
-                    <Button 
-                      variant="contained" 
-                      color="primary"
-                      onClick={loadUserStats}
-                    >
-                      조회
-                    </Button>
-                  </Box>
+                  <DatePicker
+                    views={['year', 'month']}
+                    label="월 선택"
+                    value={selectedMonth}
+                    onChange={handleMonthChange}
+                    slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                  />
                 </LocalizationProvider>
               </Grid>
-              <Grid item xs={12} sm={4} md={6} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Grid item xs={12} sm={6} md={8} sx={{ display: 'flex', gap: 2 }}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  onClick={loadUserStats}
+                >
+                  조회
+                </Button>
                 <Button
                   variant="outlined"
                   color="primary"
                   onClick={handleExportToExcel}
                   disabled={allAttendances.length === 0}
+                  startIcon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M3 4v16a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H4a1 1 0 00-1 1zm5 2h8v2H8V6zm0 4h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>}
                 >
                   엑셀 다운로드
                 </Button>
@@ -1093,30 +1176,12 @@ const AdminPage: React.FC = () => {
                 ) : (
                   <>
                     {userStats.map((employee) => {
-                      // 일별 근무 시간 데이터 생성
-                      const dailyHours: { [key: number]: number } = {};
-                      let totalMonthHours = 0;
-                      
-                      // 해당 직원의 모든 근무 기록을 일자별로 합산
-                      allAttendances.forEach(record => {
-                        if (record.employee_id === employee.employee_id || record.employeeId === employee.employeeId) {
-                          const day = dayjs(record.date || record.startDateTime?.split('T')[0]).date();
-                          const hours = record.total_hours ? parseFloat(record.total_hours) : 
-                                      parseFloat(calculateHours(record.start_time || record.startDateTime, 
-                                                              record.end_time || record.endDateTime));
-                          
-                          if (dailyHours[day]) {
-                            dailyHours[day] += hours;
-                          } else {
-                            dailyHours[day] = hours;
-                          }
-                          
-                          totalMonthHours += hours;
-                        }
-                      });
+                      const employeeId = employee.employee_id || employee.employeeId;
+                      // 직원의 월간 총 근무시간 미리 계산
+                      const totalMonthHours = calculateEmployeeMonthlyHours(employeeId);
                       
                       return (
-                        <TableRow key={employee.employee_id || employee.employeeId} hover>
+                        <TableRow key={employeeId} hover>
                           <TableCell 
                             sx={{ 
                               position: 'sticky', 
@@ -1128,29 +1193,34 @@ const AdminPage: React.FC = () => {
                           >
                             {employee.employee_name || employee.employeeName}
                           </TableCell>
-                          {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => (
-                            <TableCell 
-                              key={day} 
-                              align="center"
-                              sx={{ 
-                                padding: '6px 2px',
-                                backgroundColor: dailyHours[day] ? (
-                                  dailyHours[day] > 8 ? 'rgba(25, 118, 210, 0.1)' : 
-                                  dailyHours[day] < 4 ? 'rgba(255, 152, 0, 0.1)' : 
-                                  'rgba(76, 175, 80, 0.1)'
-                                ) : 'transparent',
-                                color: dailyHours[day] ? (
-                                  dailyHours[day] > 8 ? '#1976d2' : 
-                                  dailyHours[day] < 4 ? '#ed6c02' : 
-                                  '#2e7d32'
-                                ) : 'inherit',
-                                fontWeight: dailyHours[day] ? 'bold' : 'normal',
-                                fontSize: '0.75rem'
-                              }}
-                            >
-                              {dailyHours[day] ? dailyHours[day].toFixed(1) : '-'}
-                            </TableCell>
-                          ))}
+                          {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => {
+                            // 각 날짜별 직원 근무시간 계산
+                            const dayTotal = calculateEmployeeDailyHours(employeeId, day);
+
+                            return (
+                              <TableCell 
+                                key={day} 
+                                align="center"
+                                sx={{ 
+                                  padding: '6px 2px',
+                                  backgroundColor: dayTotal > 0 ? (
+                                    dayTotal > 8 ? 'rgba(25, 118, 210, 0.1)' : 
+                                    dayTotal < 4 ? 'rgba(255, 152, 0, 0.1)' : 
+                                    'rgba(76, 175, 80, 0.1)'
+                                  ) : 'transparent',
+                                  color: dayTotal > 0 ? (
+                                    dayTotal > 8 ? '#1976d2' : 
+                                    dayTotal < 4 ? '#ed6c02' : 
+                                    '#2e7d32'
+                                  ) : 'inherit',
+                                  fontWeight: dayTotal > 0 ? 'bold' : 'normal',
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                {dayTotal > 0 ? dayTotal.toFixed(1) : '-'}
+                              </TableCell>
+                            );
+                          })}
                           <TableCell 
                             align="center" 
                             sx={{ 
@@ -1180,7 +1250,18 @@ const AdminPage: React.FC = () => {
                         일별 합계
                       </TableCell>
                       {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => {
-                        const dayTotal = dateWorkHours[day] || 0;
+                        // 해당 날짜의 모든 직원 근무시간 합계 계산
+                        let dayTotal = 0;
+                        allAttendances.forEach(record => {
+                          const recordDay = dayjs(record.date || record.startDateTime?.split('T')[0]).date();
+                          if (recordDay === day) {
+                            const hours = record.total_hours ? parseFloat(record.total_hours) : 
+                                        parseFloat(calculateHours(record.start_time || record.startDateTime, 
+                                                                record.end_time || record.endDateTime));
+                            dayTotal += hours;
+                          }
+                        });
+                        
                         const hourStyle = getHoursColor(dayTotal);
                         
                         return (
@@ -1208,7 +1289,25 @@ const AdminPage: React.FC = () => {
                           borderTop: '2px solid rgba(224, 224, 224, 1)'
                         }}
                       >
-                        {totalMonthlyWorkHours.toFixed(1)}
+                        {/* 모든 직원의 총 근무시간 합계 - 직원별 합계의 총합으로 계산 */}
+                        {(() => {
+                          // 각 일별 총합을 모두 더함
+                          let grandTotal = 0;
+                          for (let day = 1; day <= selectedMonth.daysInMonth(); day++) {
+                            let dayTotal = 0;
+                            allAttendances.forEach(record => {
+                              const recordDay = dayjs(record.date || record.startDateTime?.split('T')[0]).date();
+                              if (recordDay === day) {
+                                const hours = record.total_hours ? parseFloat(record.total_hours) : 
+                                          parseFloat(calculateHours(record.start_time || record.startDateTime, 
+                                                                  record.end_time || record.endDateTime));
+                                dayTotal += hours;
+                              }
+                            });
+                            grandTotal += dayTotal;
+                          }
+                          return grandTotal.toFixed(1);
+                        })()}
                       </TableCell>
                     </TableRow>
                   </>
@@ -1587,26 +1686,39 @@ const AdminPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* 편집 다이얼로그 */}
+      {/* 수정 다이얼로그 */}
       <Dialog
         open={editDialogOpen}
         onClose={() => setEditDialogOpen(false)}
-        aria-labelledby="form-dialog-title"
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle id="form-dialog-title">
-          근무 기록 수정
-        </DialogTitle>
+        <DialogTitle>근무 기록 수정</DialogTitle>
         <DialogContent>
-          {/* 편집 폼 내용 */}
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            여기에 편집 폼 내용이 들어갑니다.
-          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+              <Stack spacing={2}>
+                <DateTimePicker
+                  label="시작 시간"
+                  value={editStartDateTime}
+                  onChange={(newValue) => setEditStartDateTime(newValue)}
+                  slotProps={{ textField: { fullWidth: true } }}
+                />
+                <DateTimePicker
+                  label="종료 시간"
+                  value={editEndDateTime}
+                  onChange={(newValue) => setEditEndDateTime(newValue)}
+                  slotProps={{ textField: { fullWidth: true } }}
+                />
+              </Stack>
+            </LocalizationProvider>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditDialogOpen(false)}>취소</Button>
-          <Button onClick={handleEditConfirm} color="primary">
+          <Button onClick={() => setEditDialogOpen(false)} color="inherit">
+            취소
+          </Button>
+          <Button onClick={handleEditConfirm} color="primary" variant="contained">
             저장
           </Button>
         </DialogActions>

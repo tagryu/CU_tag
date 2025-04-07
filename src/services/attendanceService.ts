@@ -78,91 +78,57 @@ export const attendanceService = {
   
   // 월별 근태 기록 가져오기 (YYYY-MM 형식)
   getAttendanceByMonth: async (month: string): Promise<Attendance[]> => {
-    // YYYY-MM 형식을 이용하여 해당 월의 시작일과 종료일 계산
-    const year = parseInt(month.split('-')[0]);
-    const monthNum = parseInt(month.split('-')[1]);
-    const startDate = `${year}-${monthNum.toString().padStart(2, '0')}-01`;
-    const endDate = new Date(year, monthNum, 0).toISOString().slice(0, 10); // 해당 월의 마지막 날
-    
-    console.log(`getAttendanceByMonth: 조회 기간 ${startDate} ~ ${endDate}`);
-    
     try {
-      // 두 테이블에서 모두 데이터를 가져와 통합
-      let allRecords: any[] = [];
+      const year = parseInt(month.split('-')[0]);
+      const monthNum = parseInt(month.split('-')[1]);
+      const startDate = `${year}-${monthNum.toString().padStart(2, '0')}-01`;
+      const endDate = new Date(year, monthNum, 0).toISOString().split('T')[0]; // 해당 월의 마지막 날
       
-      // 1. attendances 테이블 조회
-      try {
-        const { data: attendancesData, error: attendancesError } = await supabase
-          .from('attendances')
-          .select('*, employees(id, name)')
-          .gte('date', startDate)
-          .lte('date', endDate)
-          .order('date', { ascending: true });
-        
-        if (attendancesError) {
-          console.error('attendances 테이블 조회 오류:', attendancesError);
-        } else if (attendancesData) {
-          console.log('attendances 테이블에서 가져온 데이터:', attendancesData);
-          
-          // 직원 이름 추가 처리
-          const processedRecords = attendancesData.map(record => {
-            const employeeName = record.employees ? record.employees.name : null;
-            return {
-              ...record,
-              employee_name: employeeName
-            };
-          });
-          
-          allRecords = [...processedRecords];
-        }
-      } catch (err) {
-        console.error('attendances 테이블 조회 중 오류:', err);
+      console.log('월간 보고서 기간:', startDate, endDate);
+      
+      // attendances 테이블에서만 데이터 조회
+      const { data: records, error } = await supabase
+        .from('attendances')
+        .select(`
+          id,
+          employee_id,
+          date,
+          start_time,
+          end_time,
+          total_hours,
+          notes,
+          employees (
+            id,
+            name
+          )
+        `)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true });
+
+      if (error) {
+        console.error('월간 보고서 데이터 조회 오류:', error);
+        throw error;
       }
       
-      // 2. attendance_records 테이블도 조회
-      try {
-        const { data: recordsData, error: recordsError } = await supabase
-          .from('attendance_records')
-          .select('*, employees(id, name)')
-          .gte('start_date_time', `${startDate}T00:00:00`)
-          .lte('start_date_time', `${endDate}T23:59:59`)
-          .order('start_date_time', { ascending: true });
-          
-        if (recordsError) {
-          console.error('attendance_records 테이블 조회 오류:', recordsError);
-        } else if (recordsData && recordsData.length > 0) {
-          console.log('attendance_records 테이블에서 가져온 데이터:', recordsData);
-          
-          // 형식을 attendances 형식과 맞추기
-          const convertedRecords = recordsData.map(record => {
-            const dateOnly = record.start_date_time.split('T')[0];
-            const startTime = record.start_date_time.split('T')[1]?.substring(0, 8) || '00:00:00';
-            const endTime = record.end_date_time.split('T')[1]?.substring(0, 8) || '00:00:00';
-            
-            const employeeName = record.employees ? record.employees.name : null;
-            
-            return {
-              id: record.id,
-              employee_id: record.employee_id,
-              date: dateOnly,
-              start_time: startTime,
-              end_time: endTime,
-              employee_name: employeeName,
-              employees: record.employees
-            };
-          });
-          
-          allRecords = [...allRecords, ...convertedRecords];
-        }
-      } catch (err) {
-        console.error('attendance_records 테이블 조회 중 오류:', err);
-      }
+      console.log('조회된 월간 보고서 데이터:', records);
       
-      console.log('두 테이블에서 조회한 통합 데이터:', allRecords);
-      return allRecords as Attendance[];
-    } catch (error) {
-      console.error('getAttendanceByMonth 오류:', error);
-      throw error;
+      // 데이터 변환
+      const formattedRecords = records.map((record: any) => ({
+        id: record.id,
+        employee_id: record.employee_id,
+        date: record.date,
+        start_time: record.start_time,
+        end_time: record.end_time,
+        total_hours: record.total_hours,
+        notes: record.notes || '',
+        employee_name: record.employees?.name || '알 수 없음'
+      }));
+
+      return formattedRecords;
+    } catch (err) {
+      console.error('getAttendanceByMonth 오류:', err);
+      throw err;
     }
   },
   
