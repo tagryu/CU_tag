@@ -147,6 +147,10 @@ const AdminPage: React.FC = () => {
     endTime: dayjs().hour(18).minute(0) // 18:00 기본값
   });
 
+  // 월간 전체 근무 시간 및 날짜별 근무 시간 합계 계산
+  const [dateWorkHours, setDateWorkHours] = useState<{ [key: string]: number }>({});
+  const [totalMonthlyWorkHours, setTotalMonthlyWorkHours] = useState<number>(0);
+  
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
 
@@ -379,8 +383,30 @@ const AdminPage: React.FC = () => {
         }
       });
       
-      // 달력 형태의 CSV 생성
+      // 날짜별 모든 직원의 근무 시간 합계 계산
+      const dateWorkHours: { [key: string]: number } = {};
       const daysInMonth = selectedMonth.daysInMonth();
+      
+      // 날짜별 초기화
+      for (let i = 1; i <= daysInMonth; i++) {
+        dateWorkHours[i] = 0;
+      }
+      
+      // 각 직원의 각 날짜 근무 시간을 날짜별 합계에 추가
+      Object.values(employeeWorkHours).forEach(employeeDays => {
+        Object.entries(employeeDays).forEach(([day, hours]) => {
+          const dayNum = parseInt(day);
+          dateWorkHours[dayNum] += hours;
+        });
+      });
+      
+      // 월간 총 근무 시간 계산
+      const totalHours = Object.values(dateWorkHours).reduce((sum, hours) => sum + hours, 0);
+      
+      setDateWorkHours(dateWorkHours);
+      setTotalMonthlyWorkHours(totalHours);
+      
+      // 달력 형태의 CSV 생성
       const monthYear = selectedMonth.format('YYYY년 MM월');
       
       // UTF-8 BOM 추가
@@ -435,10 +461,51 @@ const AdminPage: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    } catch (err) {
-      console.error('CSV 다운로드 오류:', err);
-      setError('CSV 파일 생성 중 오류가 발생했습니다.');
+    } catch (err: any) {
+      console.error('엑셀 내보내기 오류:', err);
+      setError(err.message || '엑셀 파일 생성 중 오류가 발생했습니다.');
     }
+  };
+
+  // 날짜별 근무 시간 및 월간 총 근무 시간 계산 함수
+  const calculateWorkHoursSummary = () => {
+    // 모든 날짜 초기화
+    const newDateWorkHours: { [key: string]: number } = {};
+    const daysInMonth = selectedMonth.daysInMonth();
+    
+    for (let i = 1; i <= daysInMonth; i++) {
+      newDateWorkHours[i] = 0;
+    }
+    
+    // 날짜별 근무 시간 합계 계산
+    allAttendances.forEach(record => {
+      const date = dayjs(record.date).date(); // 일자만 추출 (1-31)
+      const hours = parseFloat(record.total_hours?.toString() || '0');
+      
+      if (newDateWorkHours[date] !== undefined) {
+        newDateWorkHours[date] += hours;
+      }
+    });
+    
+    // 월간 총 근무 시간 계산
+    const totalHours = Object.values(newDateWorkHours).reduce((sum, hours) => sum + hours, 0);
+    
+    setDateWorkHours(newDateWorkHours);
+    setTotalMonthlyWorkHours(totalHours);
+  };
+  
+  // 근무 기록이 로드될 때마다 날짜별 합계 계산
+  useEffect(() => {
+    if (allAttendances.length > 0) {
+      calculateWorkHoursSummary();
+    }
+  }, [allAttendances]);
+  
+  // 날짜별 근무 시간 색상 결정 함수
+  const getHoursColor = (hours: number) => {
+    if (hours === 24) return { backgroundColor: '#0066FF', color: 'white', fontWeight: 'bold' }; // 24시간 정확히 - 파란색
+    if (hours < 24) return { backgroundColor: '#FFCDD2', color: '#C62828', fontWeight: 'bold' };   // 24시간 미만 - 빨간색
+    return { backgroundColor: '#FFF9C4', color: '#F57F17', fontWeight: 'bold' };                   // 24시간 초과 - 노란색
   };
 
   // 모든 직원 목록 불러오기
@@ -804,134 +871,124 @@ const AdminPage: React.FC = () => {
 
       {/* 근무 기록 관리 탭 */}
       <TabPanel value={tabValue} index={0}>
-        <Box sx={{ mb: 3 }}>
-          <Paper sx={{ p: 3 }}>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} sm={6} md={4}>
-                <Typography variant="subtitle1" sx={{ mb: 2 }}>
-                  월 선택
-                </Typography>
-                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
-                  <DatePicker
-                    views={['year', 'month']}
-                    label="월 선택"
-                    value={selectedMonth}
-                    onChange={handleMonthChange}
-                    slotProps={{ textField: { fullWidth: true } }}
-                  />
-                </LocalizationProvider>
-              </Grid>
-              <Grid item xs={12} sm={6} md={6}>
-                <Typography variant="body1" sx={{ fontWeight: 'bold', mt: { xs: 0, sm: 3 } }}>
-                  {selectedMonth.format('YYYY년 MM월')} 근무 기록
-                  <Typography component="span" variant="body2" sx={{ ml: 1, color: 'text.secondary' }}>
-                    총 {totalCount}건
-                  </Typography>
-                </Typography>
-              </Grid>
-              <Grid item xs={12} sm={6} md={2} sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={handleExportToExcel}
-                  disabled={allAttendances.length === 0}
-                  sx={{ 
-                    mt: { xs: 2, sm: 3 },
-                    mb: { xs: 1, sm: 0 }
-                  }}
-                >
-                  엑셀 다운로드
-                </Button>
-              </Grid>
-            </Grid>
-          </Paper>
+        <Box sx={{ mb: 2 }}>
+          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+            <DatePicker
+              label="월 선택"
+              views={['year', 'month']}
+              value={selectedMonth}
+              onChange={handleMonthChange}
+              format="YYYY년 MM월"
+              sx={{ mb: 2 }}
+            />
+          </LocalizationProvider>
+          <Button
+            variant="outlined"
+            onClick={handleExportToExcel}
+            sx={{ ml: 2 }}
+            startIcon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M3 4v16a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H4a1 1 0 00-1 1zm5 2h8v2H8V6zm0 4h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>}
+          >
+            엑셀로 내보내기
+          </Button>
         </Box>
-
-        <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <>
-              <TableContainer sx={{ maxHeight: 600 }}>
-                <Table stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>날짜</TableCell>
-                      <TableCell>직원명 (근무타임)</TableCell>
-                      <TableCell>시작 시간</TableCell>
-                      <TableCell>종료 시간</TableCell>
-                      <TableCell>총 시간</TableCell>
-                      <TableCell align="right">관리</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={6} align="center">
-                          <CircularProgress size={24} sx={{ my: 1 }} />
-                        </TableCell>
-                      </TableRow>
-                    ) : attendances.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} align="center">
-                          해당 기간에 근무 기록이 없습니다.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      attendances.map((record) => {
-                        console.log('렌더링 중인 근무 기록:', record);
-                        const date = record.date || record.startDateTime?.split('T')[0] || '';
-                        const startTime = record.start_time || record.startDateTime?.split('T')[1] || '';
-                        const endTime = record.end_time || record.endDateTime?.split('T')[1] || '';
-                        const totalHours = record.total_hours || record.totalHours || 0;
-                        const name = record.employee_name || record.employeeName || '이름 없음';
-                        
-                        return (
-                          <TableRow key={record.id} hover>
-                            <TableCell>{dayjs(date).format('YYYY-MM-DD')}</TableCell>
-                            <TableCell>{name}</TableCell>
-                            <TableCell>{dayjs(`${date}T${startTime}`).format('HH:mm')}</TableCell>
-                            <TableCell>{dayjs(`${date}T${endTime}`).format('HH:mm')}</TableCell>
-                            <TableCell>{totalHours}시간</TableCell>
-                            <TableCell align="right">
-                              <IconButton 
-                                size="small" 
-                                onClick={() => handleEditClick(record)}
-                                color="primary"
-                              >
-                                <EditIcon />
-                              </IconButton>
-                              <IconButton 
-                                size="small" 
-                                onClick={() => handleDeleteClick(record)}
-                                color="error"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
+        
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : error ? (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        ) : (
+          <>
+            <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <>
+                  <TableContainer sx={{ maxHeight: 600 }}>
+                    <Table stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>날짜</TableCell>
+                          <TableCell>직원명 (근무타임)</TableCell>
+                          <TableCell>시작 시간</TableCell>
+                          <TableCell>종료 시간</TableCell>
+                          <TableCell>총 시간</TableCell>
+                          <TableCell align="right">관리</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {loading ? (
+                          <TableRow>
+                            <TableCell colSpan={6} align="center">
+                              <CircularProgress size={24} sx={{ my: 1 }} />
                             </TableCell>
                           </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              <TablePagination
-                component="div"
-                count={totalCount}
-                page={page - 1}
-                onPageChange={handleChangePage}
-                rowsPerPage={rowsPerPage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                rowsPerPageOptions={[10, 25, 50, 100]}
-                labelRowsPerPage="페이지당 행 수:"
-                labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
-              />
-            </>
-          )}
-        </Paper>
+                        ) : attendances.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} align="center">
+                              해당 기간에 근무 기록이 없습니다.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          attendances.map((record) => {
+                            console.log('렌더링 중인 근무 기록:', record);
+                            const date = record.date || record.startDateTime?.split('T')[0] || '';
+                            const startTime = record.start_time || record.startDateTime?.split('T')[1] || '';
+                            const endTime = record.end_time || record.endDateTime?.split('T')[1] || '';
+                            const totalHours = record.total_hours || record.totalHours || 0;
+                            const name = record.employee_name || record.employeeName || '이름 없음';
+                            
+                            return (
+                              <TableRow key={record.id} hover>
+                                <TableCell>{dayjs(date).format('YYYY-MM-DD')}</TableCell>
+                                <TableCell>{name}</TableCell>
+                                <TableCell>{dayjs(`${date}T${startTime}`).format('HH:mm')}</TableCell>
+                                <TableCell>{dayjs(`${date}T${endTime}`).format('HH:mm')}</TableCell>
+                                <TableCell>{totalHours}시간</TableCell>
+                                <TableCell align="right">
+                                  <IconButton 
+                                    size="small" 
+                                    onClick={() => handleEditClick(record)}
+                                    color="primary"
+                                  >
+                                    <EditIcon />
+                                  </IconButton>
+                                  <IconButton 
+                                    size="small" 
+                                    onClick={() => handleDeleteClick(record)}
+                                    color="error"
+                                  >
+                                    <DeleteIcon />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                  <TablePagination
+                    component="div"
+                    count={totalCount}
+                    page={page - 1}
+                    onPageChange={handleChangePage}
+                    rowsPerPage={rowsPerPage}
+                    onRowsPerPageChange={handleChangeRowsPerPage}
+                    rowsPerPageOptions={[10, 25, 50, 100]}
+                    labelRowsPerPage="페이지당 행 수:"
+                    labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+                  />
+                </>
+              )}
+            </Paper>
+          </>
+        )}
       </TabPanel>
 
       {/* 사용자별 근무 통계 탭 */}
@@ -1034,78 +1091,127 @@ const AdminPage: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  userStats.map((employee) => {
-                    // 일별 근무 시간 데이터 생성
-                    const dailyHours: { [key: number]: number } = {};
-                    let totalMonthHours = 0;
-                    
-                    // 해당 직원의 모든 근무 기록을 일자별로 합산
-                    allAttendances.forEach(record => {
-                      if (record.employee_id === employee.employee_id || record.employeeId === employee.employeeId) {
-                        const day = dayjs(record.date || record.startDateTime.split('T')[0]).date();
-                        const hours = record.total_hours ? parseFloat(record.total_hours) : 
-                                    parseFloat(calculateHours(record.start_time || record.startDateTime, 
-                                                            record.end_time || record.endDateTime));
-                        
-                        if (dailyHours[day]) {
-                          dailyHours[day] += hours;
-                        } else {
-                          dailyHours[day] = hours;
+                  <>
+                    {userStats.map((employee) => {
+                      // 일별 근무 시간 데이터 생성
+                      const dailyHours: { [key: number]: number } = {};
+                      let totalMonthHours = 0;
+                      
+                      // 해당 직원의 모든 근무 기록을 일자별로 합산
+                      allAttendances.forEach(record => {
+                        if (record.employee_id === employee.employee_id || record.employeeId === employee.employeeId) {
+                          const day = dayjs(record.date || record.startDateTime?.split('T')[0]).date();
+                          const hours = record.total_hours ? parseFloat(record.total_hours) : 
+                                      parseFloat(calculateHours(record.start_time || record.startDateTime, 
+                                                              record.end_time || record.endDateTime));
+                          
+                          if (dailyHours[day]) {
+                            dailyHours[day] += hours;
+                          } else {
+                            dailyHours[day] = hours;
+                          }
+                          
+                          totalMonthHours += hours;
                         }
-                        
-                        totalMonthHours += hours;
-                      }
-                    });
+                      });
+                      
+                      return (
+                        <TableRow key={employee.employee_id || employee.employeeId} hover>
+                          <TableCell 
+                            sx={{ 
+                              position: 'sticky', 
+                              left: 0, 
+                              backgroundColor: '#fff', 
+                              zIndex: 1,
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {employee.employee_name || employee.employeeName}
+                          </TableCell>
+                          {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => (
+                            <TableCell 
+                              key={day} 
+                              align="center"
+                              sx={{ 
+                                padding: '6px 2px',
+                                backgroundColor: dailyHours[day] ? (
+                                  dailyHours[day] > 8 ? 'rgba(25, 118, 210, 0.1)' : 
+                                  dailyHours[day] < 4 ? 'rgba(255, 152, 0, 0.1)' : 
+                                  'rgba(76, 175, 80, 0.1)'
+                                ) : 'transparent',
+                                color: dailyHours[day] ? (
+                                  dailyHours[day] > 8 ? '#1976d2' : 
+                                  dailyHours[day] < 4 ? '#ed6c02' : 
+                                  '#2e7d32'
+                                ) : 'inherit',
+                                fontWeight: dailyHours[day] ? 'bold' : 'normal',
+                                fontSize: '0.75rem'
+                              }}
+                            >
+                              {dailyHours[day] ? dailyHours[day].toFixed(1) : '-'}
+                            </TableCell>
+                          ))}
+                          <TableCell 
+                            align="center" 
+                            sx={{ 
+                              backgroundColor: '#f5f5f5',
+                              fontWeight: 'bold',
+                              color: totalMonthHours > 0 ? '#1976d2' : 'inherit'
+                            }}
+                          >
+                            {totalMonthHours.toFixed(1)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                     
-                    return (
-                      <TableRow key={employee.employee_id || employee.employeeId} hover>
-                        <TableCell 
-                          sx={{ 
-                            position: 'sticky', 
-                            left: 0, 
-                            backgroundColor: '#fff', 
-                            zIndex: 1,
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          {employee.employee_name || employee.employeeName}
-                        </TableCell>
-                        {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => (
+                    {/* 날짜별 합계 행 추가 */}
+                    <TableRow>
+                      <TableCell 
+                        sx={{ 
+                          position: 'sticky', 
+                          left: 0, 
+                          backgroundColor: '#e3f2fd', 
+                          zIndex: 1,
+                          fontWeight: 'bold',
+                          borderTop: '2px solid rgba(224, 224, 224, 1)'
+                        }}
+                      >
+                        일별 합계
+                      </TableCell>
+                      {Array.from({ length: selectedMonth.daysInMonth() }, (_, i) => i + 1).map((day) => {
+                        const dayTotal = dateWorkHours[day] || 0;
+                        const hourStyle = getHoursColor(dayTotal);
+                        
+                        return (
                           <TableCell 
                             key={day} 
                             align="center"
                             sx={{ 
                               padding: '6px 2px',
-                              backgroundColor: dailyHours[day] ? (
-                                dailyHours[day] > 8 ? 'rgba(25, 118, 210, 0.1)' : 
-                                dailyHours[day] < 4 ? 'rgba(255, 152, 0, 0.1)' : 
-                                'rgba(76, 175, 80, 0.1)'
-                              ) : 'transparent',
-                              color: dailyHours[day] ? (
-                                dailyHours[day] > 8 ? '#1976d2' : 
-                                dailyHours[day] < 4 ? '#ed6c02' : 
-                                '#2e7d32'
-                              ) : 'inherit',
-                              fontWeight: dailyHours[day] ? 'bold' : 'normal',
-                              fontSize: '0.75rem'
+                              fontSize: '0.75rem',
+                              borderTop: '2px solid rgba(224, 224, 224, 1)',
+                              color: hourStyle.color,
+                              backgroundColor: hourStyle.backgroundColor
                             }}
                           >
-                            {dailyHours[day] ? dailyHours[day].toFixed(1) : '-'}
+                            {dayTotal.toFixed(1)}
                           </TableCell>
-                        ))}
-                        <TableCell 
-                          align="center" 
-                          sx={{ 
-                            backgroundColor: '#f5f5f5',
-                            fontWeight: 'bold',
-                            color: totalMonthHours > 0 ? '#1976d2' : 'inherit'
-                          }}
-                        >
-                          {totalMonthHours.toFixed(1)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                        );
+                      })}
+                      <TableCell 
+                        align="center" 
+                        sx={{ 
+                          backgroundColor: '#1976d2',
+                          color: 'white',
+                          fontWeight: 'bold',
+                          borderTop: '2px solid rgba(224, 224, 224, 1)'
+                        }}
+                      >
+                        {totalMonthlyWorkHours.toFixed(1)}
+                      </TableCell>
+                    </TableRow>
+                  </>
                 )}
               </TableBody>
             </Table>
