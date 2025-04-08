@@ -36,6 +36,9 @@ export interface AttendanceRecord {
   employeeName?: string;  // 기존 UI 호환성
   employee_name?: string; // 백엔드 호환성
   work_time?: string;
+  status?: string;        // 승인 상태: 'pending', 'approved', 'rejected' 등
+  overnight?: boolean;    // 야간 근무 여부
+  cross_day?: boolean;    // 날짜를 넘어가는 근무인지 여부
 }
 
 // 월간 리포트 타입 정의

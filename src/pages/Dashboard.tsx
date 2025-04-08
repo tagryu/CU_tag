@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import AttendanceCalendar from '../components/AttendanceCalendar';
 import TimeKeeper from '../components/TimeKeeper';
 import EmployeeList from '../components/EmployeeList';
-import MonthlyReport from '../components/MonthlyReport';
 import Grid from '../components/GridFix';
 
 interface TabPanelProps {
@@ -109,7 +108,6 @@ const Dashboard: React.FC = () => {
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="dashboard tabs">
             <Tab label="근무 시간 등록" />
             <Tab label="근무 기록 확인" />
-            {isAdmin && <Tab label="월간 보고서" />}
           </Tabs>
         </Box>
 
@@ -122,12 +120,6 @@ const Dashboard: React.FC = () => {
         {tabValue === 1 && (
           <Paper elevation={3} sx={{ p: 3 }}>
             <AttendanceCalendar />
-          </Paper>
-        )}
-        
-        {tabValue === 2 && isAdmin && (
-          <Paper elevation={3} sx={{ p: 3 }}>
-            <MonthlyReport />
           </Paper>
         )}
       </Container>

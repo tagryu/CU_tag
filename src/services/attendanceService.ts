@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { Attendance, MonthlyReport, User, AttendanceRecord, ReportData } from '../types';
 import * as XLSX from 'xlsx';
+import dayjs from 'dayjs';
 
 // 근태 기록 관련 서비스
 export const attendanceService = {
@@ -26,16 +27,16 @@ export const attendanceService = {
     }
   },
   
-  // 특정 직원의 근태 기록 가져오기
+  // 특정 직원의 근무 기록 가져오기
   getAttendanceByEmployee: async (
     employeeId: string,
     startDate: string,
     endDate: string
   ): Promise<AttendanceRecord[]> => {
     try {
-      console.log('조회 기간:', startDate, endDate);
-      console.log('employeeId:', employeeId);
+      console.log(`${employeeId} 직원의 ${startDate}부터 ${endDate}까지의 근무 기록 조회 중...`);
       
+      // 기간 내 모든 근무 기록 조회
       const { data, error } = await supabase
         .from('attendances')
         .select('*')
@@ -43,22 +44,36 @@ export const attendanceService = {
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
-
+      
       if (error) {
-        console.error('조회 오류:', error);
+        console.error('근무 기록 조회 오류:', error);
         throw error;
       }
       
-      console.log('조회된 데이터:', data);
+      console.log('조회된 근무 기록:', data);
       
-      // 데이터베이스 컬럼 이름과 타입 필드 이름 맞추기
-      return (data || []).map(record => ({
+      // 날짜 기준으로 정렬 (내림차순)
+      const sortedData = [...(data || [])].sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      
+      // UI용으로 데이터 변환
+      const formattedRecords: AttendanceRecord[] = sortedData.map(record => ({
         id: record.id,
         employeeId: record.employee_id,
+        date: record.date,
+        start_time: record.start_time,
+        end_time: record.end_time,
         startDateTime: `${record.date}T${record.start_time}`,
-        endDateTime: `${record.date}T${record.end_time}`,
-        notes: record.notes || ''
+        endDateTime: record.cross_day 
+          ? `${dayjs(record.date).add(1, 'day').format('YYYY-MM-DD')}T${record.end_time}` 
+          : `${record.date}T${record.end_time}`,
+        totalHours: record.total_hours || 0,
+        notes: record.notes || '',
+        cross_day: record.cross_day || false
       }));
+      
+      return formattedRecords;
     } catch (err) {
       console.error('getAttendanceByEmployee 오류:', err);
       throw err;
@@ -159,50 +174,46 @@ export const attendanceService = {
         throw new Error('날짜와 시간 형식이 올바르지 않습니다.');
       }
       
-      // 시작 시간과 종료 시간으로 근무 시간 계산
-      const startHour = parseInt(startTime.split(':')[0]);
-      const startMinute = parseInt(startTime.split(':')[1]);
-      const endHour = parseInt(endTime.split(':')[0]);
-      const endMinute = parseInt(endTime.split(':')[1]);
+      // 날짜가 다른 경우 처리
+      const isSameDay = startDate === endDate;
+      let totalHours = 0;
       
-      let totalHours = endHour - startHour;
+      // 총 근무 시간 계산
+      const startMoment = dayjs(startDateTime);
+      const endMoment = dayjs(endDateTime);
+      totalHours = endMoment.diff(startMoment, 'hour', true);
       
-      // 분 차이 계산 및 시간에 추가
-      let minuteDiff = endMinute - startMinute;
-      totalHours += minuteDiff / 60;
-      
-      // 총 근무 시간이 음수인 경우(종료 시간이 시작 시간보다 이전) 처리
+      // 총 시간이 음수인 경우 처리 (잘못된 입력으로 간주)
       if (totalHours < 0) {
-        totalHours += 24; // 오버나이트 근무 가정
+        throw new Error('종료 시간은 시작 시간 이후여야 합니다.');
       }
       
       console.log('계산된 총 근무 시간:', totalHours);
       
       // 데이터베이스 레코드 구성
       const dbRecord: any = {
+        employee_id: employeeId,
         date: startDate,
         start_time: startTime,
         end_time: endTime,
-        total_hours: parseFloat(totalHours.toFixed(2))
+        // 서로 다른 날짜인 경우에도 총 시간을 제대로 기록
+        total_hours: parseFloat(totalHours.toFixed(2)),
+        cross_day: !isSameDay // 날짜를 넘기는 경우 표시
       };
-      
-      // 직원 ID 추가
-      if (employeeId) {
-        dbRecord.employee_id = employeeId;
-      }
       
       // 메모 추가
       if (notes) {
         dbRecord.notes = notes;
       }
       
-      console.log('데이터베이스 레코드 구성:', dbRecord);
+      console.log('저장할 근무 기록:', dbRecord);
       
-      // Supabase에 데이터 삽입
+      // Supabase에 레코드 추가
       const { data, error } = await supabase
         .from('attendances')
         .insert(dbRecord)
-        .select();
+        .select()
+        .single();
       
       if (error) {
         console.error('Supabase 오류:', error);
@@ -210,10 +221,23 @@ export const attendanceService = {
       }
       
       console.log('근무 기록 추가 완료:', data);
-      return data[0];
-    } catch (error: any) {
-      console.error('근무 기록 추가 중 오류:', error);
-      throw new Error(error?.message || '근무 기록 추가 중 오류가 발생했습니다.');
+      
+      // AttendanceRecord 형식으로 변환하여 반환
+      return {
+        id: data.id,
+        employeeId: data.employee_id,
+        date: data.date,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        startDateTime: `${data.date}T${data.start_time}`,
+        endDateTime: `${endDate}T${endTime}`,
+        totalHours: data.total_hours,
+        notes: data.notes || '',
+        cross_day: data.cross_day || false
+      };
+    } catch (err: any) {
+      console.error('addAttendance 오류:', err);
+      throw new Error(err?.message || '근무 기록 추가 중 오류가 발생했습니다.');
     }
   },
   
@@ -224,16 +248,18 @@ export const attendanceService = {
       employeeId,
       startDateTime,
       endDateTime,
-      notes
+      notes,
+      cross_day
     }: {
       employeeId: string;
       startDateTime: string;
       endDateTime: string;
       notes?: string;
+      cross_day?: boolean;
     }
   ): Promise<AttendanceRecord> => {
     try {
-      console.log('근무 기록 업데이트 중:', { id, employeeId, startDateTime, endDateTime, notes });
+      console.log('근무 기록 업데이트 중:', { id, employeeId, startDateTime, endDateTime, notes, cross_day });
       
       // 날짜 및 시간 데이터 처리
       const startDate = startDateTime.split('T')[0];
@@ -247,31 +273,40 @@ export const attendanceService = {
         throw new Error('날짜와 시간 형식이 올바르지 않습니다.');
       }
       
-      // 시작 시간과 종료 시간으로 근무 시간 계산
-      const startHour = parseInt(startTime.split(':')[0]);
-      const startMinute = parseInt(startTime.split(':')[1]);
-      const endHour = parseInt(endTime.split(':')[0]);
-      const endMinute = parseInt(endTime.split(':')[1]);
+      // 현재 레코드 가져오기
+      const { data: currentRecord, error: fetchError } = await supabase
+        .from('attendances')
+        .select('*')
+        .eq('id', id)
+        .single();
       
-      let totalHours = endHour - startHour;
-      
-      // 분 차이 계산 및 시간에 추가
-      let minuteDiff = endMinute - startMinute;
-      totalHours += minuteDiff / 60;
-      
-      // 총 근무 시간이 음수인 경우(종료 시간이 시작 시간보다 이전) 처리
-      if (totalHours < 0) {
-        totalHours += 24; // 오버나이트 근무 가정
+      if (fetchError || !currentRecord) {
+        console.error('기존 근무 기록 조회 오류:', fetchError);
+        throw new Error('수정할 근무 기록을 찾을 수 없습니다.');
       }
       
-      console.log('계산된 총 근무 시간:', totalHours);
+      // 총 근무 시간 계산
+      const startMoment = dayjs(startDateTime);
+      const endMoment = dayjs(endDateTime);
+      const totalHours = endMoment.diff(startMoment, 'hour', true);
+      
+      // 총 시간이 음수인 경우 처리 (잘못된 입력으로 간주)
+      if (totalHours < 0) {
+        throw new Error('종료 시간은 시작 시간 이후여야 합니다.');
+      }
+      
+      console.log('계산된 총 근무 시간 (수정):', totalHours);
+      
+      // 다른 날짜에 걸친 경우인지 확인
+      const isCrossDay = startDate !== endDate || !!cross_day;
       
       // 데이터베이스 레코드 업데이트
       const updateRecord: any = {
         date: startDate,
         start_time: startTime,
         end_time: endTime,
-        total_hours: parseFloat(totalHours.toFixed(2))
+        total_hours: parseFloat(totalHours.toFixed(2)),
+        cross_day: isCrossDay
       };
       
       // 직원 ID 추가 (변경된 경우)
@@ -282,32 +317,48 @@ export const attendanceService = {
       // 메모 업데이트
       updateRecord.notes = notes || '';
       
-      console.log('업데이트할 레코드:', updateRecord);
+      console.log('업데이트할 근무 기록:', updateRecord);
       
-      // Supabase에서 데이터 업데이트
+      // Supabase에 레코드 업데이트
       const { data, error } = await supabase
         .from('attendances')
         .update(updateRecord)
         .eq('id', id)
-        .select();
+        .select()
+        .single();
       
       if (error) {
-        console.error('Supabase 오류:', error);
+        console.error('근무 기록 업데이트 오류:', error);
         throw new Error(`근무 기록 업데이트 중 오류가 발생했습니다: ${error.message}`);
       }
       
-      console.log('근무 기록 업데이트 완료:', data);
-      return data[0];
-    } catch (error: any) {
-      console.error('근무 기록 업데이트 중 오류:', error);
-      throw new Error(error?.message || '근무 기록 업데이트 중 오류가 발생했습니다.');
+      console.log('업데이트된 근무 기록:', data);
+      
+      // AttendanceRecord 형식으로 변환하여 반환
+      return {
+        id: data.id,
+        employeeId: data.employee_id,
+        date: data.date,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        startDateTime: `${data.date}T${data.start_time}`,
+        endDateTime: data.cross_day
+          ? `${dayjs(data.date).add(1, 'day').format('YYYY-MM-DD')}T${data.end_time}`
+          : `${data.date}T${data.end_time}`,
+        totalHours: data.total_hours,
+        notes: data.notes || '',
+        cross_day: data.cross_day || false
+      };
+    } catch (err: any) {
+      console.error('updateAttendance 오류:', err);
+      throw new Error(err?.message || '근무 기록 수정 중 오류가 발생했습니다.');
     }
   },
   
   // 근태 기록 삭제
-  deleteAttendance: async (id: string): Promise<boolean> => {
+  deleteAttendance: async (id: string): Promise<void> => {
     try {
-      console.log('근무 기록 삭제 중...', id);
+      console.log('근무 기록 삭제 중:', id);
       
       const { error } = await supabase
         .from('attendances')
@@ -316,19 +367,18 @@ export const attendanceService = {
       
       if (error) {
         console.error('근무 기록 삭제 오류:', error);
-        throw error;
+        throw new Error(`근무 기록 삭제 중 오류가 발생했습니다: ${error.message}`);
       }
       
-      console.log('근무 기록 삭제 성공');
-      return true;
-    } catch (err) {
+      console.log('근무 기록 삭제 완료');
+    } catch (err: any) {
       console.error('deleteAttendance 오류:', err);
-      throw err;
+      throw new Error(err?.message || '근무 기록 삭제 중 오류가 발생했습니다.');
     }
   },
   
   // 월별 보고서 생성 및 다운로드
-  generateMonthlyReport: async (month: string): Promise<ReportData[]> => {
+  generateMonthlyReport: async (month: string): Promise<any> => {
     try {
       const year = parseInt(month.split('-')[0]);
       const monthNum = parseInt(month.split('-')[1]);
@@ -337,6 +387,18 @@ export const attendanceService = {
       
       console.log('월간 보고서 기간:', startDate, endDate);
       
+      // 직원 목록 가져오기
+      const { data: employees, error: employeeError } = await supabase
+        .from('employees')
+        .select('id, name')
+        .order('name', { ascending: true });
+        
+      if (employeeError) {
+        console.error('직원 목록 조회 오류:', employeeError);
+        throw employeeError;
+      }
+      
+      // 해당 월의 모든 근무 기록 가져오기
       const { data: records, error } = await supabase
         .from('attendances')
         .select(`
@@ -346,10 +408,7 @@ export const attendanceService = {
           start_time,
           end_time,
           total_hours,
-          employees (
-            id,
-            name
-          )
+          cross_day
         `)
         .gte('date', startDate)
         .lte('date', endDate);
@@ -361,49 +420,96 @@ export const attendanceService = {
       
       console.log('조회된 월간 보고서 데이터:', records);
 
-      // 직원별 근무 시간 계산
-      const report = records.reduce((acc: any, record: any) => {
-        const employeeId = record.employee_id;
-        const employeeName = record.employees?.name || '알 수 없음';
+      // 해당 월의 모든 날짜 생성 (1일부터 말일까지)
+      const daysInMonth = new Date(year, monthNum, 0).getDate();
+      
+      // 데이터 가공: 직원별, 날짜별 근무 시간
+      const employeeHours: Record<string, Record<number, number>> = {};
+      const employeeNames: Record<string, string> = {};
+      
+      // 각 직원의 기본 데이터 초기화
+      employees.forEach(emp => {
+        employeeHours[emp.id] = {};
+        employeeNames[emp.id] = emp.name;
         
-        if (!acc[employeeId]) {
-          acc[employeeId] = {
-            employeeId,
-            employeeName,
-            workDays: new Set(),
-            totalHours: 0,
-            absenceDays: 0
-          };
+        // 모든 날짜 초기화
+        for (let i = 1; i <= daysInMonth; i++) {
+          employeeHours[emp.id][i] = 0;
         }
-
-        acc[employeeId].workDays.add(record.date);
-        acc[employeeId].totalHours += Number(record.total_hours) || 0;
-
-        return acc;
-      }, {});
-      
-      // 월의 근무일수 계산 (주말 제외)
-      const workDaysInMonth = Array.from(
-        { length: new Date(year, monthNum, 0).getDate() },
-        (_, i) => new Date(year, monthNum - 1, i + 1)
-      ).filter(date => date.getDay() !== 0 && date.getDay() !== 6).length;
-      
-      // 결과 배열로 변환
-      const result = Object.values(report).map((r: any) => {
-        const workDays = r.workDays.size;
-        const absenceDays = Math.max(0, workDaysInMonth - workDays);
-        const efficiency = ((r.totalHours / (workDays * 8)) * 100).toFixed(1);
-        
-        return {
-          ...r,
-          workDays,
-          absenceDays,
-          efficiency
-        };
       });
       
-      console.log('생성된 보고서:', result);
-      return result as ReportData[];
+      // 근무 기록으로 시간 채우기
+      records.forEach(record => {
+        const employeeId = record.employee_id;
+        const date = new Date(record.date);
+        const day = date.getDate(); // 일자만 추출 (1-31)
+        
+        // 해당 직원 ID가 있을 경우에만 처리
+        if (employeeHours[employeeId]) {
+          // 해당 날짜에 시간 추가
+          employeeHours[employeeId][day] = (employeeHours[employeeId][day] || 0) + record.total_hours;
+        }
+      });
+      
+      // 엑셀 워크시트 데이터 생성
+      const worksheetData: any[] = [];
+      
+      // 첫 번째 행: 빈칸으로 시작 + 1일~15일
+      const firstRow = [''];
+      for (let i = 1; i <= 15; i++) {
+        firstRow.push(`${i}일`);
+      }
+      worksheetData.push(firstRow);
+      
+      // 두 번째 행: 빈칸으로 시작 + 16일~말일
+      const secondRow = [''];
+      for (let i = 16; i <= daysInMonth; i++) {
+        secondRow.push(`${i}일`);
+      }
+      worksheetData.push(secondRow);
+      
+      // 직원 및 역할별 데이터 행 추가
+      const roles = [
+        { title: '직원1(결근 오전)', key: '직원1' },
+        { title: '류동희(주말 야간)', key: '류동희' },
+        { title: '관리자', key: '관리자' }
+      ];
+      
+      // 직원별 근무 시간 데이터 + 역할별 행 추가
+      [...Object.keys(employeeHours), ...roles.map(r => r.key)].forEach((key, index) => {
+        const isEmployee = employeeNames[key] !== undefined;
+        const name = isEmployee ? employeeNames[key] : roles.find(r => r.key === key)?.title || key;
+        
+        // 빈 행 추가 (구분선)
+        if (!isEmployee && index > 0) {
+          worksheetData.push([]);
+        }
+        
+        // 첫 번째 행 (1일~15일)
+        const firstHalfRow = [name];
+        for (let i = 1; i <= 15; i++) {
+          // 직원인 경우 근무 시간 추가, 역할인 경우 빈칸
+          if (isEmployee) {
+            const hours = employeeHours[key][i];
+            firstHalfRow.push(hours > 0 ? hours.toFixed(1) : '0');
+          } else {
+            firstHalfRow.push('0');
+          }
+        }
+        worksheetData.push(firstHalfRow);
+        
+        // 두 번째 행 (16일~말일) - 직원인 경우에만
+        if (isEmployee) { 
+          const secondHalfRow = [''];
+          for (let i = 16; i <= daysInMonth; i++) {
+            const hours = employeeHours[key][i];
+            secondHalfRow.push(hours > 0 ? hours.toFixed(1) : '0');
+          }
+          worksheetData.push(secondHalfRow);
+        }
+      });
+      
+      return worksheetData;
     } catch (err) {
       console.error('generateMonthlyReport 오류:', err);
       throw err;
@@ -415,7 +521,8 @@ export const attendanceService = {
     employee_id: string; 
     date: string; 
     start_time?: string; 
-    end_time?: string; 
+    end_time?: string;
+    end_date?: string;
     notes?: string;
   }): Promise<AttendanceRecord> => {
     try {
@@ -425,14 +532,32 @@ export const attendanceService = {
         date: data.date,
         start_time: data.start_time || '09:00:00',
         end_time: data.end_time || '18:00:00',
+        end_date: data.end_date || data.date,
         total_hours: 0
       };
       
       // 시작 시간과 종료 시간이 있는 경우 총 시간 계산
       if (data.start_time && data.end_time) {
-        const startTime = new Date(`${data.date}T${data.start_time}`);
-        const endTime = new Date(`${data.date}T${data.end_time}`);
-        recordData.total_hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+        let totalHours = 0;
+
+        if (recordData.date === recordData.end_date) {
+          // 같은 날짜인 경우
+          const startTime = new Date(`${data.date}T${data.start_time}`);
+          const endTime = new Date(`${data.date}T${data.end_time}`);
+          totalHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+          
+          // 시간이 음수인 경우 (오버나이트 근무)
+          if (totalHours < 0) {
+            totalHours += 24;
+          }
+        } else {
+          // 다른 날짜인 경우
+          const startTime = new Date(`${data.date}T${data.start_time}`);
+          const endTime = new Date(`${data.end_date || data.date}T${data.end_time}`);
+          totalHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+        }
+        
+        recordData.total_hours = totalHours;
       } else {
         // 기본 8시간
         recordData.total_hours = 8;
@@ -458,7 +583,7 @@ export const attendanceService = {
         id: record.id,
         employeeId: record.employee_id,
         startDateTime: `${record.date}T${record.start_time}`,
-        endDateTime: `${record.date}T${record.end_time}`,
+        endDateTime: `${record.end_date || record.date}T${record.end_time}`,
         notes: data.notes || ''
       };
     } catch (err) {
@@ -537,19 +662,74 @@ export const attendanceService = {
       
       console.log('조회된 모든 근무 기록:', data);
       
-      // 데이터 변환
-      const records = data.map(record => ({
-        id: record.id,
-        employeeId: record.employee_id,
-        employeeName: record.employees?.name || '알 수 없음',
-        startDateTime: `${record.date}T${record.start_time}`,
-        endDateTime: `${record.date}T${record.end_time}`,
-        totalHours: record.total_hours,
-        notes: record.notes || ''
-      }));
+      // 같은 날짜의 연속된 기록 찾기 (예: 자정을 넘긴 기록)
+      const processedRecords: AttendanceRecord[] = [];
+      const processedIds = new Set<string>();
+      
+      // 날짜별로 정렬
+      const sortedData = [...(data || [])].sort((a, b) => {
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
+      
+      for (let i = 0; i < sortedData.length; i++) {
+        const record = sortedData[i];
+        
+        // 이미 처리한 레코드 건너뛰기
+        if (processedIds.has(record.id)) continue;
+        
+        // 시작 시간이 00:00인 레코드 찾기 (다음 날로 이어진 기록일 가능성)
+        if (record.start_time === '00:00' && i > 0) {
+          // 이전 날짜의 레코드 찾기
+          const prevDate = new Date(record.date);
+          prevDate.setDate(prevDate.getDate() - 1);
+          const prevDateStr = prevDate.toISOString().split('T')[0];
+          
+          // 이전 날짜의 레코드 중 종료 시간이 23:59인 레코드 찾기
+          const prevRecord = sortedData.find(r => 
+            r.date === prevDateStr && 
+            r.end_time === '23:59' &&
+            r.employee_id === record.employee_id
+          );
+          
+          if (prevRecord) {
+            // 이전 레코드와 현재 레코드를 합쳐서 하나의 레코드로 처리
+            processedIds.add(record.id);
+            processedIds.add(prevRecord.id);
+            
+            processedRecords.push({
+              id: prevRecord.id,
+              employeeId: prevRecord.employee_id,
+              employeeName: prevRecord.employees?.name || record.employees?.name || '알 수 없음',
+              startDateTime: `${prevRecord.date}T${prevRecord.start_time}`,
+              endDateTime: `${record.date}T${record.end_time}`,
+              totalHours: (prevRecord.total_hours || 0) + (record.total_hours || 0),
+              notes: prevRecord.notes || record.notes || '',
+              status: record.status || prevRecord.status || 'pending',
+              overnight: true // 야간 근무 표시
+            });
+            continue;
+          }
+        }
+        
+        // 일반 레코드 처리
+        if (!processedIds.has(record.id)) {
+          processedIds.add(record.id);
+          processedRecords.push({
+            id: record.id,
+            employeeId: record.employee_id,
+            employeeName: record.employees?.name || '알 수 없음',
+            startDateTime: `${record.date}T${record.start_time}`,
+            endDateTime: `${record.date}T${record.end_time}`,
+            totalHours: record.total_hours,
+            notes: record.notes || '',
+            status: record.status || 'pending',
+            overnight: false
+          });
+        }
+      }
       
       return {
-        data: records,
+        data: processedRecords,
         count: totalCount
       };
     } catch (err) {
@@ -580,20 +760,72 @@ export const attendanceService = {
       
       console.log('조회된 모든 근무 기록:', data);
       
-      // 데이터 변환
-      const records = data.map(record => ({
-        id: record.id,
-        employee_id: record.employee_id,
-        employee_name: record.employees?.name || '알 수 없음',
-        date: record.date,
-        start_time: record.start_time,
-        end_time: record.end_time,
-        total_hours: record.total_hours,
-        notes: record.notes || '',
-        status: record.status || 'pending'
-      }));
+      // 같은 날짜의 연속된 기록 찾기 (예: 자정을 넘긴 기록)
+      const processedRecords: any[] = [];
+      const processedIds = new Set<string>();
       
-      return records;
+      // 날짜별로 정렬
+      const sortedData = [...(data || [])].sort((a, b) => {
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
+      
+      for (let i = 0; i < sortedData.length; i++) {
+        const record = sortedData[i];
+        
+        // 이미 처리한 레코드 건너뛰기
+        if (processedIds.has(record.id)) continue;
+        
+        // 시작 시간이 00:00인 레코드 찾기 (다음 날로 이어진 기록일 가능성)
+        if (record.start_time === '00:00' && i > 0) {
+          // 이전 날짜의 레코드 찾기
+          const prevDate = new Date(record.date);
+          prevDate.setDate(prevDate.getDate() - 1);
+          const prevDateStr = prevDate.toISOString().split('T')[0];
+          
+          // 이전 날짜의 레코드 중 종료 시간이 23:59인 레코드 찾기
+          const prevRecord = sortedData.find(r => 
+            r.date === prevDateStr && 
+            r.end_time === '23:59' &&
+            r.employee_id === record.employee_id
+          );
+          
+          if (prevRecord) {
+            // 이전 레코드와 현재 레코드를 합쳐서 하나의 레코드로 처리
+            processedIds.add(record.id);
+            processedIds.add(prevRecord.id);
+            
+            // 자정을 넘긴 기록을 하나로 합치기 (첫째 날 레코드 기준)
+            processedRecords.push({
+              id: prevRecord.id,
+              employee_id: prevRecord.employee_id,
+              employee_name: prevRecord.employees?.name || record.employees?.name || '알 수 없음',
+              date: prevRecord.date,
+              start_time: prevRecord.start_time,
+              end_time: record.end_time,
+              total_hours: (prevRecord.total_hours || 0) + (record.total_hours || 0),
+              notes: (prevRecord.notes || '') + ' ' + (record.notes || '')
+            });
+            continue;
+          }
+        }
+        
+        // 일반 레코드 처리
+        if (!processedIds.has(record.id)) {
+          processedIds.add(record.id);
+          processedRecords.push({
+            id: record.id,
+            employee_id: record.employee_id,
+            employee_name: record.employees?.name || '알 수 없음',
+            date: record.date,
+            start_time: record.start_time,
+            end_time: record.end_time,
+            total_hours: record.total_hours,
+            notes: record.notes || ''
+          });
+        }
+      }
+      
+      return processedRecords;
     } catch (err) {
       console.error('getAllAttendancesByPeriod 오류:', err);
       throw err;
@@ -680,11 +912,6 @@ export const attendanceService = {
         .select('id')
         .eq('id', adminData.id)
         .maybeSingle();
-      
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('사용자 확인 중 오류:', checkError);
-        throw checkError;
-      }
       
       // 사용자가 이미 존재하면 오류
       if (existingUser) {

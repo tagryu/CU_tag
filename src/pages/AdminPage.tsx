@@ -392,15 +392,15 @@ const AdminPage: React.FC = () => {
       const employeeWorkHours: { [key: string]: { [key: string]: number } } = {};
       const employeeNames: string[] = [];
       
-      // 모든 직원 목록 및 초기 데이터 구조 생성
-      allAttendances.forEach(record => {
-        const employeeName = record.employee_name;
-        if (!employeeWorkHours[employeeName]) {
-          employeeWorkHours[employeeName] = {};
-          if (!employeeNames.includes(employeeName)) {
-            employeeNames.push(employeeName);
-          }
-        }
+      // 모든 직원 목록 구하기 (중복 제거)
+      const uniqueEmployees = Array.from(
+        new Set(allAttendances.map(record => record.employee_name))
+      );
+      
+      // 직원별 근무 시간 데이터 구조 초기화
+      uniqueEmployees.forEach(employeeName => {
+        employeeWorkHours[employeeName] = {};
+        employeeNames.push(employeeName);
       });
       
       // 직원별, 날짜별 근무 시간 합산
@@ -449,41 +449,48 @@ const AdminPage: React.FC = () => {
       const BOM = '\uFEFF';
       let csvContent = BOM;
       
-      // CSV 내용 생성
-      csvContent += `직원명,${monthYear} 일별 근무 시간\n`;
+      // 첫 번째 행: 빈칸 + 1일~15일 날짜 헤더
+      csvContent += ',';
+      for (let i = 1; i <= 15; i++) {
+        csvContent += `${i}일,`;
+      }
+      csvContent = csvContent.slice(0, -1) + '\n';
       
-      // 각 직원별로 4행씩만 사용
-      employeeNames.forEach(name => {
-        // 1행: 직원명 + 1-15일 날짜 헤더
+      // 두 번째 행: 빈칸 + 16일~말일 날짜 헤더
+      csvContent += ',';
+      for (let i = 16; i <= daysInMonth; i++) {
+        csvContent += `${i}일,`;
+      }
+      csvContent = csvContent.slice(0, -1) + '\n';
+      
+      // 역할 및 직원 행 추가
+      const roles = [
+        // 필요 없는 역할 정보 제거
+      ];
+      
+      // 직원 데이터 추가
+      uniqueEmployees.forEach((name) => {
+        // 직원명 + 1일~15일 근무시간
         csvContent += `${name},`;
         for (let i = 1; i <= 15; i++) {
-          csvContent += `${i}일,`;
-        }
-        csvContent = csvContent.slice(0, -1) + '\n';
-        
-        // 2행: 빈칸 + 1-15일 근무시간
-        csvContent += ',';
-        for (let i = 1; i <= 15; i++) {
-          const hours = employeeWorkHours[name][i] || '';
+          const hours = employeeWorkHours[name][i] || 0;
           csvContent += `${hours},`;
         }
         csvContent = csvContent.slice(0, -1) + '\n';
         
-        // 3행: 빈칸 + 16-말일 날짜 헤더
-        csvContent += ',';
+        // 16일~말일 근무시간
+        csvContent += ','; // 첫 열은 비움
         for (let i = 16; i <= daysInMonth; i++) {
-          csvContent += `${i}일,`;
-        }
-        csvContent = csvContent.slice(0, -1) + '\n';
-        
-        // 4행: 빈칸 + 16-말일 근무시간
-        csvContent += ',';
-        for (let i = 16; i <= daysInMonth; i++) {
-          const hours = employeeWorkHours[name][i] || '';
+          const hours = employeeWorkHours[name][i] || 0;
           csvContent += `${hours},`;
         }
         csvContent = csvContent.slice(0, -1) + '\n';
       });
+      
+      // 구분선 추가
+      csvContent += '\n';
+      
+      // 역할 정보 제거 - 더 이상 역할 데이터 추가하지 않음
       
       // 파일명 (YYYY-MM 형식)
       const fileName = `근무기록_${selectedMonth.format('YYYY-MM')}.csv`;
@@ -1439,7 +1446,7 @@ const AdminPage: React.FC = () => {
                         <TableCell align="right">
                           <Button
                             size="small"
-                            startIcon={<AccessTimeIcon />}
+                            startIcon={<Box component={AccessTimeIcon} sx={{ fontSize: 'small' }} />}
                             onClick={() => loadEmployeeSchedules(emp.id)}
                             color="info"
                           >
@@ -1660,32 +1667,6 @@ const AdminPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* 삭제 확인 다이얼로그 */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-        aria-labelledby="alert-dialog-title"
-        aria-describedby="alert-dialog-description"
-      >
-        <DialogTitle id="alert-dialog-title">
-          근무 기록 삭제
-        </DialogTitle>
-        <DialogContent>
-          <Typography>
-            {selectedRecord?.employee_name}님의 근무 기록을 삭제하시겠습니까?
-          </Typography>
-          <Typography variant="caption" color="error">
-            이 작업은 되돌릴 수 없습니다.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>취소</Button>
-          <Button onClick={handleDeleteConfirm} color="error" autoFocus>
-            삭제
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* 수정 다이얼로그 */}
       <Dialog
         open={editDialogOpen}
@@ -1698,18 +1679,78 @@ const AdminPage: React.FC = () => {
           <Box sx={{ mt: 2 }}>
             <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
               <Stack spacing={2}>
-                <DateTimePicker
-                  label="시작 시간"
-                  value={editStartDateTime}
-                  onChange={(newValue) => setEditStartDateTime(newValue)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
-                <DateTimePicker
-                  label="종료 시간"
-                  value={editEndDateTime}
-                  onChange={(newValue) => setEditEndDateTime(newValue)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <DatePicker
+                    label="시작 날짜"
+                    value={editStartDateTime}
+                    onChange={(newValue) => setEditStartDateTime(newValue)}
+                    slotProps={{ textField: { fullWidth: true } }}
+                    format="YYYY-MM-DD"
+                  />
+                  <TextField
+                    label="시작 시간"
+                    fullWidth
+                    value={editStartDateTime ? dayjs(editStartDateTime).format('HH:mm') : ''}
+                    onChange={(e) => {
+                      const timeValue = e.target.value;
+                      // HH:MM 형식 확인
+                      if (/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue) || timeValue === '') {
+                        if (timeValue && editStartDateTime) {
+                          const [hours, minutes] = timeValue.split(':').map(Number);
+                          const newDateTime = dayjs(editStartDateTime)
+                            .hour(hours)
+                            .minute(minutes);
+                          setEditStartDateTime(newDateTime);
+                        }
+                      }
+                    }}
+                    placeholder="HH:MM"
+                    InputProps={{
+                      startAdornment: (
+                        <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                          <Box component={AccessTimeIcon} sx={{ fontSize: 'small' }} />
+                        </Box>
+                      ),
+                    }}
+                    helperText="24시간 형식 (예: 09:30, 18:45)"
+                  />
+                </Stack>
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <DatePicker
+                    label="종료 날짜"
+                    value={editEndDateTime}
+                    onChange={(newValue) => setEditEndDateTime(newValue)}
+                    slotProps={{ textField: { fullWidth: true } }}
+                    format="YYYY-MM-DD"
+                  />
+                  <TextField
+                    label="종료 시간"
+                    fullWidth
+                    value={editEndDateTime ? dayjs(editEndDateTime).format('HH:mm') : ''}
+                    onChange={(e) => {
+                      const timeValue = e.target.value;
+                      // HH:MM 형식 확인
+                      if (/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue) || timeValue === '') {
+                        if (timeValue && editEndDateTime) {
+                          const [hours, minutes] = timeValue.split(':').map(Number);
+                          const newDateTime = dayjs(editEndDateTime)
+                            .hour(hours)
+                            .minute(minutes);
+                          setEditEndDateTime(newDateTime);
+                        }
+                      }
+                    }}
+                    placeholder="HH:MM"
+                    InputProps={{
+                      startAdornment: (
+                        <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                          <Box component={AccessTimeIcon} sx={{ fontSize: 'small' }} />
+                        </Box>
+                      ),
+                    }}
+                    helperText="24시간 형식 (예: 09:30, 18:45)"
+                  />
+                </Stack>
               </Stack>
             </LocalizationProvider>
           </Box>

@@ -25,11 +25,12 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   Tooltip,
-  SvgIcon
+  SvgIcon,
+  Chip
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { DateTimePicker, DatePicker } from '@mui/x-date-pickers';
+import { DateTimePicker, DatePicker, TimePicker } from '@mui/x-date-pickers';
 import dayjs from 'dayjs';
 import { attendanceService } from '../services/attendanceService';
 import { AttendanceRecord, DefaultSchedule, DAY_OF_WEEK_NAMES } from '../types';
@@ -202,8 +203,9 @@ const TimeKeeper = () => {
         return;
       }
 
-      // 시작 시간이 종료 시간보다 늦은 경우를 체크합니다
-      if (startDateTime.isAfter(endDateTime)) {
+      // 총 시간이 음수라면 종료 시간이 시작 시간보다 이전이란 의미
+      const diffHours = endDateTime.diff(startDateTime, 'hour', true);
+      if (diffHours < 0) {
         setError('종료 시간은 시작 시간 이후로 설정해주세요.');
         return;
       }
@@ -223,6 +225,7 @@ const TimeKeeper = () => {
       // 시간대 확인 로깅
       console.log('선택한 시작 시간:', startDateTime.format('YYYY-MM-DD HH:mm'));
       console.log('선택한 종료 시간:', endDateTime.format('YYYY-MM-DD HH:mm'));
+      console.log('날짜 다름 여부:', startDateTime.format('YYYY-MM-DD') !== endDateTime.format('YYYY-MM-DD'));
       console.log('변환된 시작 시간 문자열:', startDateTimeStr);
       console.log('변환된 종료 시간 문자열:', endDateTimeStr);
 
@@ -235,62 +238,82 @@ const TimeKeeper = () => {
       
       console.log('전송할 근무 기록:', attendanceRecord);
 
-      // 중복 근무 시간 확인
+      // 근무 시간 중복 확인
+      const startDateStr = startDateTime.format('YYYY-MM-DD');
+      const endDateStr = endDateTime.format('YYYY-MM-DD');
+      
       try {
-        const dateStr = startDateTime.format('YYYY-MM-DD');
         const { supabase } = await import('../services/supabase');
         
-        // attendances 테이블에서 해당 날짜에 등록된 모든 근무 기록 조회
-        const { data, error } = await supabase
+        // 시작 날짜에 등록된 모든 근무 기록 조회
+        const { data: startDateRecords, error: startDateError } = await supabase
           .from('attendances')
           .select('*, employees(name)')
-          .eq('date', dateStr);
+          .eq('date', startDateStr)
+          .eq('employee_id', employee);
+        
+        if (startDateError) {
+          console.error('근무 기록 중복 확인 중 오류:', startDateError);
+        }
+        
+        // 종료 날짜에 등록된 모든 근무 기록 조회 (다른 날짜인 경우)
+        let endDateRecords: any[] = [];
+        if (startDateStr !== endDateStr) {
+          const { data: endDateData, error: endDateError } = await supabase
+            .from('attendances')
+            .select('*, employees(name)')
+            .eq('date', endDateStr)
+            .eq('employee_id', employee);
           
-        if (error) {
-          console.error('근무 기록 중복 확인 중 오류:', error);
-        } else if (data && data.length > 0) {
-          console.log('해당 날짜의 모든 근무 기록:', data);
-          
-          // 현재 선택한 시간과 겹치는 기록 확인
-          const overlappingRecords = data.filter((record: any) => {
-            const recordStartTime = `${dateStr}T${record.start_time}`;
-            const recordEndTime = `${dateStr}T${record.end_time}`;
-            
-            // 시간 겹침 확인 로직
-            const isOverlapping = (
-              (startDateTimeStr <= recordEndTime && endDateTimeStr >= recordStartTime) ||
-              (recordStartTime <= endDateTimeStr && recordEndTime >= startDateTimeStr)
-            );
-            
-            return isOverlapping;
-          });
-          
-          if (overlappingRecords.length > 0) {
-            console.log('겹치는 근무 기록 발견:', overlappingRecords);
-            
-            // 겹치는 기록 정보 가공하여 저장
-            const formattedRecords = overlappingRecords.map((record: any) => ({
-              employeeName: record.employees?.name || '알 수 없음',
-              startTime: record.start_time,
-              endTime: record.end_time
-            }));
-            
-            // 중복 기록 상태 업데이트
-            setDuplicateRecords(formattedRecords);
-            setPendingRecord(attendanceRecord);
-            setDuplicateDialogOpen(true);
-            return; // 여기서 중단하고 다이얼로그 표시
+          if (endDateError) {
+            console.error('종료 날짜 근무 기록 중복 확인 중 오류:', endDateError);
+          } else if (endDateData) {
+            endDateRecords = endDateData;
           }
         }
+        
+        // 모든 관련 레코드 결합
+        const allRecords = [...(startDateRecords || []), ...endDateRecords];
+        
+        if (allRecords.length > 0) {
+          console.log('해당 날짜들의 모든 근무 기록:', allRecords);
+          
+          // 시간 중복 확인 로직
+          const isOverlapping = allRecords.some(record => {
+            const recordStartDateTime = `${record.date}T${record.start_time}`;
+            
+            // cross_day가 true인 경우 종료 시간은 다음 날
+            const recordEndDate = record.cross_day
+              ? dayjs(record.date).add(1, 'day').format('YYYY-MM-DD')
+              : record.date;
+            const recordEndDateTime = `${recordEndDate}T${record.end_time}`;
+            
+            // 시간 겹침 확인
+            return (
+              (startDateTimeStr <= recordEndDateTime && endDateTimeStr >= recordStartDateTime) ||
+              (recordStartDateTime <= endDateTimeStr && recordEndDateTime >= startDateTimeStr)
+            );
+          });
+          
+          if (isOverlapping) {
+            // 중복 확인 대화상자 표시
+            setDuplicateRecords(allRecords);
+            setPendingRecord(attendanceRecord);
+            setDuplicateDialogOpen(true);
+            return;
+          }
+        }
+        
+        // 중복이 없으면 저장 진행
+        await saveAttendanceRecord(attendanceRecord);
+        
       } catch (err) {
-        console.error('중복 근무 시간 확인 중 오류:', err);
-        // 중복 확인 실패 시에도 계속 진행 (오류 방지)
+        console.error('중복 확인 중 오류:', err);
+        // 중복 확인 오류는 무시하고 저장 진행
+        await saveAttendanceRecord(attendanceRecord);
       }
-
-      // 중복이 없으면 그대로 진행
-      await saveAttendanceRecord(attendanceRecord);
     } catch (err: any) {
-      console.error('근무 시간 등록 중 오류가 발생했습니다.', err);
+      console.error('근무 시간 등록 중 오류:', err);
       setError(err?.message || '근무 시간 등록 중 오류가 발생했습니다.');
     }
   };
@@ -370,62 +393,40 @@ const TimeKeeper = () => {
     }
   };
 
-  // 수정 버튼 클릭 핸들러
-  const handleEditClick = (record: AttendanceRecord) => {
+  // 수정 다이얼로그 열기
+  const openEditDialog = (record: AttendanceRecord) => {
+    console.log('편집할 기록:', record);
+    
+    // 날짜 및 시간 문자열 가져오기
+    const startDateTimeStr = record.startDateTime || '';
+    const endDateTimeStr = record.endDateTime || '';
+    
+    console.log('원본 시작 시간:', startDateTimeStr);
+    console.log('원본 종료 시간:', endDateTimeStr);
+    
+    // 기본값 설정 및 유효성 검사
+    let startDayjs = dayjs(startDateTimeStr);
+    let endDayjs = dayjs(endDateTimeStr);
+    
+    // 유효하지 않은 날짜/시간인 경우 현재 시간으로 기본값 설정
+    if (!startDayjs.isValid()) {
+      console.warn('시작 시간이 유효하지 않습니다. 현재 시간으로 설정합니다.');
+      startDayjs = dayjs();
+    }
+    
+    if (!endDayjs.isValid()) {
+      console.warn('종료 시간이 유효하지 않습니다. 현재 시간으로 설정합니다.');
+      endDayjs = dayjs();
+    }
+    
+    // 최종 값 설정
     setEditRecord(record);
-    setEditStartDateTime(dayjs(record.startDateTime));
-    setEditEndDateTime(dayjs(record.endDateTime));
+    setEditStartDateTime(startDayjs);
+    setEditEndDateTime(endDayjs);
     setEditNotes(record.notes || '');
     setEditDialogOpen(true);
   };
-  
-  // 수정 내용 저장 핸들러
-  const handleEditSave = async () => {
-    try {
-      if (!editRecord || !editStartDateTime || !editEndDateTime) {
-        setError('필수 정보가 누락되었습니다.');
-        return;
-      }
-      
-      if (editStartDateTime.isAfter(editEndDateTime)) {
-        setError('종료 시간은 시작 시간 이후로 설정해주세요.');
-        return;
-      }
-      
-      // 현재 선택된 시작 시간과 종료 시간을 정확히 보존
-      const startDateTimeStr = editStartDateTime.format('YYYY-MM-DDTHH:mm:00');
-      const endDateTimeStr = editEndDateTime.format('YYYY-MM-DDTHH:mm:00');
-      
-      // 시간대 확인 로깅
-      console.log('수정된 시작 시간:', editStartDateTime.format('YYYY-MM-DD HH:mm'));
-      console.log('수정된 종료 시간:', editEndDateTime.format('YYYY-MM-DD HH:mm'));
-      console.log('변환된 시작 시간 문자열:', startDateTimeStr);
-      console.log('변환된 종료 시간 문자열:', endDateTimeStr);
-      
-      const updatedRecord = {
-        employeeId: editRecord.employeeId || '',
-        startDateTime: startDateTimeStr,
-        endDateTime: endDateTimeStr,
-        notes: editNotes || ''
-      };
-      
-      console.log('수정할 근무 기록:', updatedRecord);
-      
-      await attendanceService.updateAttendance(editRecord.id || '', updatedRecord);
-      
-      setSuccess('근무 기록이 성공적으로 수정되었습니다.');
-      setEditDialogOpen(false);
-      loadRecentAttendances();
-      
-      setTimeout(() => {
-        setSuccess(null);
-      }, 3000);
-    } catch (err: any) {
-      console.error('근무 기록 수정 중 오류:', err);
-      setError(err?.message || '근무 기록 수정 중 오류가 발생했습니다.');
-    }
-  };
-  
+
   // 삭제 버튼 클릭 핸들러
   const handleDeleteClick = (id: string) => {
     setDeleteRecordId(id);
@@ -498,6 +499,64 @@ const TimeKeeper = () => {
     
     // 대화상자 닫기
     setDefaultScheduleDialogOpen(false);
+  };
+
+  // 편집 저장 핸들러
+  const handleEditSave = async () => {
+    try {
+      // 필수 필드 확인
+      if (!editRecord || !editStartDateTime || !editEndDateTime) {
+        setError('모든 필수 정보를 입력해주세요.');
+        return;
+      }
+      
+      // 종료 시간 검증
+      if (editStartDateTime.isAfter(editEndDateTime)) {
+        setError('종료 시간은 시작 시간 이후로 설정해주세요.');
+        return;
+      }
+      
+      // 날짜 및 시간 형식 변환
+      const startDateTimeStr = editStartDateTime.format('YYYY-MM-DDTHH:mm:00');
+      const endDateTimeStr = editEndDateTime.format('YYYY-MM-DDTHH:mm:00');
+      
+      console.log('수정된 시작 시간:', startDateTimeStr);
+      console.log('수정된 종료 시간:', endDateTimeStr);
+      
+      // 수정된 기록 생성 (cross_day 필드 추가)
+      const startDate = editStartDateTime.format('YYYY-MM-DD');
+      const endDate = editEndDateTime.format('YYYY-MM-DD');
+      const isCrossDay = startDate !== endDate;
+      
+      console.log('날짜 다름 여부:', isCrossDay);
+      
+      const updatedRecord = {
+        employeeId: editRecord.employeeId || user?.uid || '',
+        startDateTime: startDateTimeStr,
+        endDateTime: endDateTimeStr,
+        notes: editNotes || '',
+        cross_day: isCrossDay
+      };
+      
+      if (!editRecord.id) {
+        throw new Error('수정할 기록의 ID가 없습니다.');
+      }
+      
+      // 서비스 호출하여 업데이트
+      await attendanceService.updateAttendance(editRecord.id, updatedRecord);
+      
+      // 성공 메시지 표시
+      setSuccess('근무 기록이 성공적으로 수정되었습니다.');
+      
+      // 다이얼로그 닫기
+      setEditDialogOpen(false);
+      
+      // 데이터 다시 불러오기
+      loadRecentAttendances();
+    } catch (error) {
+      console.error('근무 기록 수정 오류:', error);
+      setError('근무 기록 수정 중 오류가 발생했습니다. 다시 시도해주세요.');
+    }
   };
 
   return (
@@ -578,28 +637,40 @@ const TimeKeeper = () => {
                 />
               </LocalizationProvider>
               
-              <TextField
-                label="시간"
-                value={startDateTime ? startDateTime.format('HH:mm') : ''}
-                onChange={(e) => {
-                  const timeValue = e.target.value;
-                  // 시간 형식 검증 (HH:MM)
-                  if (timeValue && startDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
-                    const [hours, minutes] = timeValue.split(':').map(Number);
-                    const newDateTime = startDateTime
-                      .hour(hours)
-                      .minute(minutes);
-                    setStartDateTime(newDateTime);
-                  }
-                }}
-                placeholder="09:00"
-                inputProps={{ 
-                  maxLength: 5,
-                  inputMode: 'numeric', 
-                  pattern: '[0-9]{1,2}:[0-9]{2}'
-                }}
-                sx={{ width: '130px' }}
-              />
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                <TimePicker
+                  label="시간"
+                  value={startDateTime}
+                  onChange={(newValue) => {
+                    if (newValue && startDateTime) {
+                      // 시간만 변경하고 날짜는 유지
+                      const updatedDateTime = startDateTime
+                        .hour(newValue.hour())
+                        .minute(newValue.minute());
+                      setStartDateTime(updatedDateTime);
+                    }
+                  }}
+                  format="HH:mm"
+                  ampm={false}
+                  sx={{ width: '130px' }}
+                  closeOnSelect
+                  slots={{
+                    textField: (params) => (
+                      <TextField
+                        {...params}
+                        InputProps={{
+                          ...params.InputProps,
+                          startAdornment: (
+                            <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                              <AccessTimeIcon />
+                            </Box>
+                          ),
+                        }}
+                      />
+                    ),
+                  }}
+                />
+              </LocalizationProvider>
             </Box>
           </Stack>
           
@@ -627,28 +698,40 @@ const TimeKeeper = () => {
                 />
               </LocalizationProvider>
               
-              <TextField
-                label="시간"
-                value={endDateTime ? endDateTime.format('HH:mm') : ''}
-                onChange={(e) => {
-                  const timeValue = e.target.value;
-                  // 시간 형식 검증 (HH:MM)
-                  if (timeValue && endDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
-                    const [hours, minutes] = timeValue.split(':').map(Number);
-                    const newDateTime = endDateTime
-                      .hour(hours)
-                      .minute(minutes);
-                    setEndDateTime(newDateTime);
-                  }
-                }}
-                placeholder="18:00"
-                inputProps={{ 
-                  maxLength: 5,
-                  inputMode: 'numeric', 
-                  pattern: '[0-9]{1,2}:[0-9]{2}'
-                }}
-                sx={{ width: '130px' }}
-              />
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                <TimePicker
+                  label="시간"
+                  value={endDateTime}
+                  onChange={(newValue) => {
+                    if (newValue && endDateTime) {
+                      // 시간만 변경하고 날짜는 유지
+                      const updatedDateTime = endDateTime
+                        .hour(newValue.hour())
+                        .minute(newValue.minute());
+                      setEndDateTime(updatedDateTime);
+                    }
+                  }}
+                  format="HH:mm"
+                  ampm={false}
+                  sx={{ width: '130px' }}
+                  closeOnSelect
+                  slots={{
+                    textField: (params) => (
+                      <TextField
+                        {...params}
+                        InputProps={{
+                          ...params.InputProps,
+                          startAdornment: (
+                            <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                              <AccessTimeIcon />
+                            </Box>
+                          ),
+                        }}
+                      />
+                    ),
+                  }}
+                />
+              </LocalizationProvider>
             </Box>
           </Stack>
           
@@ -761,7 +844,7 @@ const TimeKeeper = () => {
                         <IconButton 
                           edge="end" 
                           size="small" 
-                          onClick={() => handleEditClick(attendance)}
+                          onClick={() => openEditDialog(attendance)}
                         >
                           <EditIcon />
                         </IconButton>
@@ -808,17 +891,36 @@ const TimeKeeper = () => {
                       color="text.secondary"
                       sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
                     >
-                      <Box 
-                        component="span" 
-                        sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center',
-                          mr: 0.5
-                        }}
-                      >
-                        <AccessTimeIcon />
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box 
+                          component="span" 
+                          sx={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            mr: 0.5
+                          }}
+                        >
+                          <Box component={AccessTimeIcon} sx={{ fontSize: '0.9rem', mr: 0.5 }} />
+                        </Box>
+                        <span>
+                          {attendance.cross_day || attendance.overnight 
+                            ? `${dayjs(attendance.startDateTime).format('MM/DD HH:mm')} - ${dayjs(attendance.endDateTime).format('MM/DD HH:mm')}`
+                            : `${dayjs(attendance.startDateTime).format('HH:mm')} - ${dayjs(attendance.endDateTime).format('HH:mm')}`
+                          }
+                        </span>
                       </Box>
-                      {dayjs(attendance.startDateTime).format('HH:mm')} - {dayjs(attendance.endDateTime).format('HH:mm')}
+                      {(attendance.cross_day || attendance.overnight) && 
+                        <Chip 
+                          label="야간" 
+                          size="small" 
+                          color="secondary" 
+                          sx={{ 
+                            height: '16px', 
+                            fontSize: '0.65rem',
+                            ml: 0.5
+                          }} 
+                        />
+                      }
                     </Typography>
                     
                     {attendance.notes && (
@@ -899,28 +1001,40 @@ const TimeKeeper = () => {
                   />
                 </LocalizationProvider>
                 
-                <TextField
-                  label="시간"
-                  value={editStartDateTime ? editStartDateTime.format('HH:mm') : ''}
-                  onChange={(e) => {
-                    const timeValue = e.target.value;
-                    // 시간 형식 검증 (HH:MM)
-                    if (timeValue && editStartDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
-                      const [hours, minutes] = timeValue.split(':').map(Number);
-                      const newDateTime = editStartDateTime
-                        .hour(hours)
-                        .minute(minutes);
-                      setEditStartDateTime(newDateTime);
-                    }
-                  }}
-                  placeholder="09:00"
-                  inputProps={{ 
-                    maxLength: 5,
-                    inputMode: 'numeric', 
-                    pattern: '[0-9]{1,2}:[0-9]{2}'
-                  }}
-                  sx={{ width: '130px' }}
-                />
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                  <TimePicker
+                    label="시간"
+                    value={editStartDateTime}
+                    onChange={(newValue) => {
+                      if (newValue && editStartDateTime) {
+                        // 시간만 변경하고 날짜는 유지
+                        const updatedDateTime = editStartDateTime
+                          .hour(newValue.hour())
+                          .minute(newValue.minute());
+                        setEditStartDateTime(updatedDateTime);
+                      }
+                    }}
+                    format="HH:mm"
+                    ampm={false}
+                    sx={{ width: '130px' }}
+                    closeOnSelect
+                    slots={{
+                      textField: (params) => (
+                        <TextField
+                          {...params}
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                                <AccessTimeIcon />
+                              </Box>
+                            ),
+                          }}
+                        />
+                      ),
+                    }}
+                  />
+                </LocalizationProvider>
               </Box>
             </Stack>
             
@@ -948,28 +1062,40 @@ const TimeKeeper = () => {
                   />
                 </LocalizationProvider>
                 
-                <TextField
-                  label="시간"
-                  value={editEndDateTime ? editEndDateTime.format('HH:mm') : ''}
-                  onChange={(e) => {
-                    const timeValue = e.target.value;
-                    // 시간 형식 검증 (HH:MM)
-                    if (timeValue && editEndDateTime && /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeValue)) {
-                      const [hours, minutes] = timeValue.split(':').map(Number);
-                      const newDateTime = editEndDateTime
-                        .hour(hours)
-                        .minute(minutes);
-                      setEditEndDateTime(newDateTime);
-                    }
-                  }}
-                  placeholder="18:00"
-                  inputProps={{ 
-                    maxLength: 5,
-                    inputMode: 'numeric', 
-                    pattern: '[0-9]{1,2}:[0-9]{2}'
-                  }}
-                  sx={{ width: '130px' }}
-                />
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ko">
+                  <TimePicker
+                    label="시간"
+                    value={editEndDateTime}
+                    onChange={(newValue) => {
+                      if (newValue && editEndDateTime) {
+                        // 시간만 변경하고 날짜는 유지
+                        const updatedDateTime = editEndDateTime
+                          .hour(newValue.hour())
+                          .minute(newValue.minute());
+                        setEditEndDateTime(updatedDateTime);
+                      }
+                    }}
+                    format="HH:mm"
+                    ampm={false}
+                    sx={{ width: '130px' }}
+                    closeOnSelect
+                    slots={{
+                      textField: (params) => (
+                        <TextField
+                          {...params}
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <Box sx={{ mr: 1, color: 'text.secondary', opacity: 0.7, display: 'flex' }}>
+                                <AccessTimeIcon />
+                              </Box>
+                            ),
+                          }}
+                        />
+                      ),
+                    }}
+                  />
+                </LocalizationProvider>
               </Box>
             </Stack>
             
@@ -1003,8 +1129,21 @@ const TimeKeeper = () => {
             취소
           </Button>
           <Button 
-            onClick={handleEditSave}
+            onClick={() => setDeleteDialogOpen(true)}
             variant="contained"
+            color="error"
+            sx={{ 
+              borderRadius: 2,
+              px: 3,
+              fontWeight: 'bold'
+            }}
+          >
+            삭제
+          </Button>
+          <Button 
+            onClick={handleEditSave} 
+            variant="contained" 
+            color="primary"
             sx={{ 
               borderRadius: 2,
               px: 3,
@@ -1096,7 +1235,7 @@ const TimeKeeper = () => {
             {duplicateRecords.map((record, index) => (
               <Box key={index} sx={{ mb: index < duplicateRecords.length - 1 ? 1 : 0 }}>
                 <Typography variant="body2">
-                  {record.employeeName}: {record.startTime} ~ {record.endTime}
+                  {record.employees?.name || '알 수 없음'}: {record.start_time} ~ {record.end_time}
                 </Typography>
               </Box>
             ))}
